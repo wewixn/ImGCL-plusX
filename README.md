@@ -3,12 +3,17 @@
 
 
 ## Version Infomation
+可以使用以下命令安装大多数需要的包。torch-cluster、torch-scatter、torch-sparse、torch-spline-conv需要手动安装，建议在[轮子](https://pytorch-geometric.com/whl/)网站获取whl文件，再使用pip安装，以匹配各个包的版本。
+
+```
+pip install -r requirements.txt
+```
 
 项目使用的库版本信息如下：
 - python==3.9
-- torch==2.2.0
-- torch-cluster==1.6.3+pt22cu121
+- torch==2.2.0+cu121
 - torch-geometric==2.5.0
+- torch-cluster==1.6.3+pt22cu121
 - torch-scatter==2.1.2+pt22cu121
 - torch-sparse==0.6.18+pt22cu121
 - torch-spline-conv==1.2.2+pt22cu121
