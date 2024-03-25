@@ -15,7 +15,7 @@ from LGAccCalc import LREvaluator
 from Contrast import WithinEmbedContrast
 # from GCL.models.contrast_model import WithinEmbedContrast
 from torch_geometric.nn import GCNConv
-from torch_geometric.datasets import DBLP, Amazon
+from torch_geometric.datasets import DBLP, Amazon, WikiCS
 from pl_bolts.optimizers import LinearWarmupCosineAnnealingLR
 
 
@@ -80,20 +80,25 @@ def pbs_sample(data, pseudo_labels, a, alpha=0.85, pr=0.1, l=0.1):
 
     samples = torch.multinomial(p_pbs, int(data.num_nodes*l))[0]
 
-    pseudo_labels = pseudo_labels[samples]
-    samples = data.x[samples]
-    samples = sim_sample(samples, pseudo_labels)
-    samples = torch.from_numpy(samples).to(device=device)
-
     return samples
 
 
-def sim_sample(x, pseudo_labels):
-    dense_x = x.cpu().numpy()
-    tl = TomekLinks()
-    sampled_indices = tl.fit_resample(dense_x, pseudo_labels.cpu().numpy())[1]
+def sim_sample(data, encoder_model, pseudo_labels):
+    data_clone = data.clone()
+    data4sample, _, _ = encoder_model(data_clone.x, data_clone.edge_index, data_clone.edge_attr)
 
-    return sampled_indices
+    dense_x = data_clone.x.detach().cpu().numpy()
+    tl = TomekLinks()
+    _, pseudo_labels = tl.fit_resample(dense_x, pseudo_labels.cpu().numpy())
+    pseudo_labels = torch.from_numpy(pseudo_labels).to(device=data.x.device)
+    sample_mask = tl.sample_indices_
+
+    sample_mask = torch.from_numpy(sample_mask).to(device=data.x.device)
+    data.x = data_clone.x[sample_mask]
+    data.edge_index = subgraph(sample_mask, data_clone.edge_index)[0]
+    data.edge_index = remap_edge_index(data.edge_index, sample_mask, data_clone.x.size(0))
+
+    return data, pseudo_labels
 
 
 def cluster(encoder_model, data, num_clusters=100):
@@ -152,7 +157,7 @@ def train(encoder_model, contrast_model, data, optimizer, pseudo_labels):
     encoder_model.train()
     optimizer.zero_grad()
     _, z1, z2 = encoder_model(data.x, data.edge_index, data.edge_attr)
-    loss = contrast_model(z1, z2, pseudo_labels)
+    loss = contrast_model(z1, z2)
     loss.backward()
     optimizer.step()
     return loss.item()
@@ -168,8 +173,8 @@ def test(encoder_model, data):
 
 def main():
     device = torch.device('cuda')
-    path = osp.join(osp.expanduser('~'), 'datasets', 'Amazon')
-    dataset = Amazon(path, name='Photo', transform=T.NormalizeFeatures())
+    path = osp.join(osp.expanduser('~'), 'datasets', 'WikiCS')
+    dataset = WikiCS(path, transform=T.NormalizeFeatures())
     data = dataset[0].to(device)
     data_train = data.clone()
 
@@ -192,14 +197,15 @@ def main():
         for epoch in range(1, 4001):
             loss = train(encoder_model, contrast_model, data_train, optimizer, pseudo_labels)
             if epoch % B == 0:
-                pseudo_labels = cluster(encoder_model, data).to(device)
+                # pseudo_labels = cluster(encoder_model, data).to(device)
                 # sample_mask = pbs_sample(data, pseudo_labels, 1-epoch/40)
-                sample_mask = sim_sample(data.x, pseudo_labels)
-                sample_mask = torch.from_numpy(sample_mask).to(device=device)
-                data_train.x = data.x[sample_mask]
-                data_train.edge_index = subgraph(sample_mask, data.edge_index)[0]
-                data_train.edge_index = remap_edge_index(data_train.edge_index, sample_mask, pseudo_labels.size(0))
-                # data_train = rand_noise(data_train, pseudo_labels[sample_mask])
+                # data_train.x = data.x[sample_mask]
+                # data_train.edge_index = subgraph(sample_mask, data.edge_index)[0]
+                # data_train.edge_index = remap_edge_index(data_train.edge_index, sample_mask, pseudo_labels.size(0))
+                # pseudo_labels = pseudo_labels[sample_mask]
+
+                data_train, pseudo_labels = sim_sample(data_train, encoder_model, pseudo_labels)
+                data_train = rand_noise(data_train, pseudo_labels)
 
             scheduler.step()
             pbar.set_postfix({'loss': loss})
