@@ -86,16 +86,17 @@ def pbs_sample(data, pseudo_labels, a, alpha=0.85, pr=0.1, l=0.1):
 def sim_sample(data, encoder_model, pseudo_labels):
     data_clone = data.clone()
     data4sample, _, _ = encoder_model(data_clone.x, data_clone.edge_index, data_clone.edge_attr)
+    data4sample = data4sample.detach().cpu().numpy()
 
-    dense_x = data_clone.x.detach().cpu().numpy()
+    # data4sample = data_clone.x.detach().cpu().numpy()
     tl = TomekLinks()
-    _, pseudo_labels = tl.fit_resample(dense_x, pseudo_labels.cpu().numpy())
+    _, pseudo_labels = tl.fit_resample(data4sample, pseudo_labels.cpu().numpy())
     pseudo_labels = torch.from_numpy(pseudo_labels).to(device=data.x.device)
     sample_mask = tl.sample_indices_
 
     sample_mask = torch.from_numpy(sample_mask).to(device=data.x.device)
     data.x = data_clone.x[sample_mask]
-    data.edge_index = subgraph(sample_mask, data_clone.edge_index)[0]
+    data.edge_index = subgraph(sample_mask, data_clone.edge_index, num_nodes=data_clone.x.size(0))[0]
     data.edge_index = remap_edge_index(data.edge_index, sample_mask, data_clone.x.size(0))
 
     return data, pseudo_labels
@@ -157,7 +158,7 @@ def train(encoder_model, contrast_model, data, optimizer, pseudo_labels):
     encoder_model.train()
     optimizer.zero_grad()
     _, z1, z2 = encoder_model(data.x, data.edge_index, data.edge_attr)
-    loss = contrast_model(z1, z2)
+    loss = contrast_model(z1, z2, pseudo_labels)
     loss.backward()
     optimizer.step()
     return loss.item()
@@ -200,8 +201,8 @@ def main():
                 # pseudo_labels = cluster(encoder_model, data).to(device)
                 # sample_mask = pbs_sample(data, pseudo_labels, 1-epoch/40)
                 # data_train.x = data.x[sample_mask]
-                # data_train.edge_index = subgraph(sample_mask, data.edge_index)[0]
-                # data_train.edge_index = remap_edge_index(data_train.edge_index, sample_mask, pseudo_labels.size(0))
+                # data_train.edge_index = subgraph(sample_mask, data.edge_index, num_nodes=data.x.size(0))[0]
+                # data_train.edge_index = remap_edge_index(data_train.edge_index, sample_mask, data.x.size(0))
                 # pseudo_labels = pseudo_labels[sample_mask]
 
                 data_train, pseudo_labels = sim_sample(data_train, encoder_model, pseudo_labels)
