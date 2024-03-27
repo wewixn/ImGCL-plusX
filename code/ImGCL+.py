@@ -83,12 +83,15 @@ def pbs_sample(data, pseudo_labels, a, alpha=0.85, pr=0.1, l=0.1):
     return samples
 
 
-def sim_sample(data, encoder_model, pseudo_labels):
+def sim_sample(data, pseudo_labels, encoder_model=None):
     data_clone = data.clone()
-    data4sample, _, _ = encoder_model(data_clone.x, data_clone.edge_index, data_clone.edge_attr)
-    data4sample = data4sample.detach().cpu().numpy()
 
-    # data4sample = data_clone.x.detach().cpu().numpy()
+    if encoder_model is not None:
+        data4sample, _, _ = encoder_model(data_clone.x, data_clone.edge_index, data_clone.edge_attr)
+        data4sample = data4sample.detach().cpu().numpy()
+    else:
+        data4sample = data_clone.x.detach().cpu().numpy()
+
     tl = TomekLinks()
     _, pseudo_labels = tl.fit_resample(data4sample, pseudo_labels.cpu().numpy())
     pseudo_labels = torch.from_numpy(pseudo_labels).to(device=data.x.device)
@@ -154,7 +157,7 @@ def rand_noise(data, cluster_labels):
     return data
 
 
-def train(encoder_model, contrast_model, data, optimizer, pseudo_labels):
+def train(encoder_model, contrast_model, data, optimizer, pseudo_labels=None):
     encoder_model.train()
     optimizer.zero_grad()
     _, z1, z2 = encoder_model(data.x, data.edge_index, data.edge_attr)
@@ -174,8 +177,8 @@ def test(encoder_model, data):
 
 def main():
     device = torch.device('cuda')
-    path = osp.join(osp.expanduser('~'), 'datasets', 'WikiCS')
-    dataset = WikiCS(path, transform=T.NormalizeFeatures())
+    path = osp.join(osp.expanduser('~'), 'datasets', 'Amazon')
+    dataset = Amazon(path, name='Computers', transform=T.NormalizeFeatures())
     data = dataset[0].to(device)
     data_train = data.clone()
 
@@ -196,7 +199,8 @@ def main():
     with tqdm(total=4000, desc='(T)') as pbar:
         pseudo_labels = cluster(encoder_model, data).to(device)
         for epoch in range(1, 4001):
-            loss = train(encoder_model, contrast_model, data_train, optimizer, pseudo_labels)
+            loss = train(encoder_model, contrast_model, data_train, optimizer)
+            # loss = train(encoder_model, contrast_model, data_train, optimizer, pseudo_labels)
             if epoch % B == 0:
                 # pseudo_labels = cluster(encoder_model, data).to(device)
                 # sample_mask = pbs_sample(data, pseudo_labels, 1-epoch/40)
@@ -205,7 +209,8 @@ def main():
                 # data_train.edge_index = remap_edge_index(data_train.edge_index, sample_mask, data.x.size(0))
                 # pseudo_labels = pseudo_labels[sample_mask]
 
-                data_train, pseudo_labels = sim_sample(data_train, encoder_model, pseudo_labels)
+                # data_train, pseudo_labels = sim_sample(data_train, pseudo_labels)
+                data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, encoder_model)
                 data_train = rand_noise(data_train, pseudo_labels)
 
             scheduler.step()
