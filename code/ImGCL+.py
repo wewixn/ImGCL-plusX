@@ -5,7 +5,7 @@ import GCL.augmentors as A
 import torch_geometric.transforms as T
 from torch_geometric.utils import add_self_loops, degree, subgraph, to_dense_adj
 
-from imblearn.under_sampling import ClusterCentroids, TomekLinks
+from imblearn.under_sampling import RandomUnderSampler, TomekLinks
 import numpy as np
 from sklearn.cluster import KMeans
 from tqdm import tqdm
@@ -83,7 +83,7 @@ def pbs_sample(data, pseudo_labels, a, alpha=0.85, pr=0.1, l=0.1):
     return samples
 
 
-def sim_sample(data, pseudo_labels, encoder_model=None):
+def sim_sample(data, pseudo_labels, sampler=None, encoder_model=None):
     data_clone = data.clone()
 
     if encoder_model is not None:
@@ -92,10 +92,12 @@ def sim_sample(data, pseudo_labels, encoder_model=None):
     else:
         data4sample = data_clone.x.detach().cpu().numpy()
 
-    tl = TomekLinks()
-    _, pseudo_labels = tl.fit_resample(data4sample, pseudo_labels.cpu().numpy())
+    if sampler is None:
+        sampler = TomekLinks()
+
+    _, pseudo_labels = sampler.fit_resample(data4sample, pseudo_labels.cpu().numpy())
     pseudo_labels = torch.from_numpy(pseudo_labels).to(device=data.x.device)
-    sample_mask = tl.sample_indices_
+    sample_mask = sampler.sample_indices_
 
     sample_mask = torch.from_numpy(sample_mask).to(device=data.x.device)
     data.x = data_clone.x[sample_mask]
@@ -137,24 +139,47 @@ def pos_perturbation(data, ):
     return data
 
 
-def rand_noise(data, cluster_labels):
-    cluster_labels = cluster_labels.cpu().numpy()
-    cluster_counts = np.bincount(cluster_labels)
+def rand_noise(data, labels):
+    labels = labels.cpu().numpy()
+    cluster_counts = np.bincount(labels)
     cluster_threshold = 1 / len(cluster_counts)
-    majority_clusters = np.where((cluster_counts / len(cluster_labels)) > cluster_threshold)[0]
+    majority_clusters = np.where((cluster_counts / len(labels)) > cluster_threshold)[0]
 
-    majority_indices = np.concatenate([np.where(cluster_labels == cluster)[0] for cluster in majority_clusters])
+    majority_indices = np.concatenate([np.where(labels == cluster)[0] for cluster in majority_clusters])
     majority_indices = majority_indices.tolist()
+
+    # add noise to data.x
     data.x[majority_indices] = node_perturbation(data.x[majority_indices])
 
+    # add noise to data.edge_index
     data.edge_index = data.edge_index.cpu().numpy()
     mask = np.isin(data.edge_index[0], majority_indices) | np.isin(data.edge_index[1], majority_indices)
     data.edge_index = edge_perturbation(data.edge_index, mask, disconnect_prob=0.01)
     data.edge_index = torch.from_numpy(data.edge_index).to(device=data.x.device)
 
+    # add noise to position
     # data = pos_perturbation(data, )
 
     return data
+
+
+def generate_sampling_strategy(labels):
+    labels = labels.cpu().numpy()
+    class_counts = np.bincount(labels)
+    class_threshold = len(labels) / len(class_counts)
+    max_minority_count = min(class_counts)
+    for class_count in enumerate(class_counts):
+        if class_count < class_threshold:
+            max_minority_count = max(max_minority_count, class_count)
+    sampling_strategy = {}
+
+    for class_label, class_count in enumerate(class_counts):
+        if class_count < class_threshold:
+            sampling_strategy[class_label] = class_count
+        else:
+            sampling_strategy[class_label] = max(int(0.5 * class_count), max_minority_count)
+
+    return sampling_strategy
 
 
 def train(encoder_model, contrast_model, data, optimizer, pseudo_labels=None):
@@ -178,7 +203,7 @@ def test(encoder_model, data):
 def main():
     device = torch.device('cuda')
     path = osp.join(osp.expanduser('~'), 'datasets', 'Amazon')
-    dataset = Amazon(path, name='Computers', transform=T.NormalizeFeatures())
+    dataset = Amazon(path, name='Photo', transform=T.NormalizeFeatures())
     data = dataset[0].to(device)
     data_train = data.clone()
 
@@ -196,22 +221,29 @@ def main():
         max_epochs=4000)
 
     B = 100
+    num_clusters = min(int(data.x.size(0) / 100), 100)
+    pseudo_labels = cluster(encoder_model, data, num_clusters=num_clusters).to(device)
     with tqdm(total=4000, desc='(T)') as pbar:
-        pseudo_labels = cluster(encoder_model, data).to(device)
         for epoch in range(1, 4001):
             loss = train(encoder_model, contrast_model, data_train, optimizer)
-            # loss = train(encoder_model, contrast_model, data_train, optimizer, pseudo_labels)
             if epoch % B == 0:
-                # pseudo_labels = cluster(encoder_model, data).to(device)
+                # num_clusters = min(int(data.x.size(0) / 100), 100)
+                # pseudo_labels = cluster(encoder_model, data, num_clusters=num_clusters).to(device)
                 # sample_mask = pbs_sample(data, pseudo_labels, 1-epoch/40)
                 # data_train.x = data.x[sample_mask]
                 # data_train.edge_index = subgraph(sample_mask, data.edge_index, num_nodes=data.x.size(0))[0]
                 # data_train.edge_index = remap_edge_index(data_train.edge_index, sample_mask, data.x.size(0))
                 # pseudo_labels = pseudo_labels[sample_mask]
 
-                # data_train, pseudo_labels = sim_sample(data_train, pseudo_labels)
-                data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, encoder_model)
-                data_train = rand_noise(data_train, pseudo_labels)
+                prev_data_count = data_train.x.size(0)
+                undersampler = TomekLinks()
+                data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, encoder_model)
+
+                # data_train = rand_noise(data_train, pseudo_labels)
+
+                if data_train.x.size(0) >= 0.99 * prev_data_count:
+                    data_train = data.clone()
+                    pseudo_labels = cluster(encoder_model, data, num_clusters=num_clusters).to(device)
 
             scheduler.step()
             pbar.set_postfix({'loss': loss})
