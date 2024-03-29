@@ -138,19 +138,21 @@ def main():
         for epoch in range(1, 4001):
             loss = train(encoder_model, contrast_model, data_train, optimizer)
             if epoch % B == 0:
-                pseudo_labels = cluster(encoder_model, data).to(device)
-                sample_mask = pbs_sample(data, pseudo_labels, 1-epoch/40)
+                num_clusters = min(int(data.x.size(0) / 100), 100)
+                pseudo_labels = cluster(encoder_model, data, num_clusters=num_clusters).to(device)
+                sample_mask = pbs_sample(data, pseudo_labels, 1 - epoch / 40)
                 data_train.x = data.x[sample_mask]
-                data_train.edge_index = subgraph(sample_mask, data.edge_index)[0]
-                data_train.edge_index = remap_edge_index(data_train.edge_index, sample_mask, pseudo_labels.size(0))
+                data_train.edge_index = subgraph(sample_mask, data.edge_index, num_nodes=data.x.size(0))[0]
+                data_train.edge_index = remap_edge_index(data_train.edge_index, sample_mask, data.x.size(0))
 
             scheduler.step()
             pbar.set_postfix({'loss': loss})
             pbar.update()
 
     test_result = test(encoder_model, data)
-    print(f'(E): Best test acc={test_result["acc"]:.4f}')
-    return test_result["acc"]
+    print(f'(E): Best test acc={test_result["acc"]:.4f}, F1Mi={test_result["micro_f1"]:.4f}, '
+          f'F1Ma={test_result["macro_f1"]:.4f}')
+    return test_result
 
 
 if __name__ == '__main__':

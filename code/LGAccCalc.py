@@ -37,8 +37,10 @@ class LREvaluator(BaseEvaluator):
         output_fn = nn.LogSoftmax(dim=-1)
         criterion = nn.NLLLoss()
 
-        best_val_acc = 0
+        best_val_micro = 0
         best_test_acc = 0
+        best_test_micro = 0
+        best_test_macro = 0
         best_epoch = 0
 
         with tqdm(total=self.num_epochs, desc='(LR)',
@@ -58,19 +60,27 @@ class LREvaluator(BaseEvaluator):
                     y_test = y[split['test']].detach().cpu().numpy()
                     y_pred = classifier(x[split['test']]).argmax(-1).detach().cpu().numpy()
                     test_acc = (y_pred == y_test).sum().item() / y_test.size
+                    test_micro = f1_score(y_test, y_pred, average='micro')
+                    test_macro = f1_score(y_test, y_pred, average='macro')
 
                     y_val = y[split['valid']].detach().cpu().numpy()
                     y_pred = classifier(x[split['valid']]).argmax(-1).detach().cpu().numpy()
-                    val_acc = f1_score(y_val, y_pred, average='micro')
+                    val_acc = (y_pred == y_val).sum().item() / y_val.size
+                    val_micro = f1_score(y_val, y_pred, average='micro')
 
-                    if val_acc > best_val_acc:
-                        best_val_acc = val_acc
+                    if val_micro > best_val_micro:
+                        best_val_micro = val_acc
                         best_test_acc = test_acc
+                        best_test_micro = test_micro
+                        best_test_macro = test_macro
                         best_epoch = epoch
 
-                    pbar.set_postfix({'best test acc': best_test_acc})
+                    pbar.set_postfix({'best test acc': best_test_acc, 'best test F1Mi': best_test_micro,
+                                      'F1Ma': best_test_macro})
                     pbar.update(self.test_interval)
 
         return {
             'acc': best_test_acc,
+            'micro_f1': best_test_micro,
+            'macro_f1': best_test_macro
         }

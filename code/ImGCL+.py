@@ -203,7 +203,7 @@ def test(encoder_model, data):
 def main():
     device = torch.device('cuda')
     path = osp.join(osp.expanduser('~'), 'datasets', 'Amazon')
-    dataset = Amazon(path, name='Photo', transform=T.NormalizeFeatures())
+    dataset = Amazon(path, name='Computers', transform=T.NormalizeFeatures())
     data = dataset[0].to(device)
     data_train = data.clone()
 
@@ -250,9 +250,9 @@ def main():
             pbar.update()
 
     test_result = test(encoder_model, data)
-    print(f'(E): Best test acc={test_result["acc"]:.4f}')
-    # print(f'(E): Best test F1Mi={test_result["micro_f1"]:.4f}, F1Ma={test_result["macro_f1"]:.4f}')
-    return test_result["acc"]
+    print(f'(E): Best test acc={test_result["acc"]:.4f}, F1Mi={test_result["micro_f1"]:.4f}, '
+          f'F1Ma={test_result["macro_f1"]:.4f}')
+    return test_result
 
 
 if __name__ == '__main__':
