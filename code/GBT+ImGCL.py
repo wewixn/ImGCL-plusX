@@ -10,8 +10,7 @@ import numpy as np
 from sklearn.cluster import KMeans
 from tqdm import tqdm
 from torch.optim import Adam
-from GCL.eval import get_split
-from LGAccCalc import LREvaluator
+from GCL.eval import get_split, LREvaluator
 from Contrast import WithinEmbedContrast
 # from GCL.models.contrast_model import WithinEmbedContrast
 from torch_geometric.nn import GCNConv
@@ -150,8 +149,7 @@ def main():
             pbar.update()
 
     test_result = test(encoder_model, data)
-    print(f'(E): Best test acc={test_result["acc"]:.4f}, F1Mi={test_result["micro_f1"]:.4f}, '
-          f'F1Ma={test_result["macro_f1"]:.4f}')
+    print(f'(E): Best test F1Mi={test_result["micro_f1"]:.4f}, F1Ma={test_result["macro_f1"]:.4f}')
     return test_result
 
 
