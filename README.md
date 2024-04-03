@@ -3,7 +3,7 @@
 
 
 ## Version Infomation
-可以使用以下命令安装大多数需要的包。torch-cluster、torch-scatter、torch-sparse、torch-spline-conv需要手动安装，建议在[轮子](https://pytorch-geometric.com/whl/)网站获取whl文件，再使用pip安装，以匹配各个包的版本。
+可以使用以下命令安装大多数需要的包。torch-cluster、torch-scatter、torch-sparse、torch-spline-conv需要手动安装，建议在[torch_geometric-whl](https://pytorch-geometric.com/whl/)网站获取whl文件，再使用pip安装，以匹配各个包的版本。torch与torchvision也可以在[torch-whl](https://download.pytorch.org/whl/)网站查找符合的版本。
 
 ```
 pip install -r requirements.txt
