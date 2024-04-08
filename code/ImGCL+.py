@@ -4,9 +4,10 @@ import GCL.losses as L
 import GCL.augmentors as A
 import torch.nn.functional as F
 import torch_geometric.transforms as T
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, DBSCAN
 from torch_geometric.utils import add_self_loops, degree, subgraph, to_dense_adj, dense_to_sparse
 
+import collections
 import random
 from copy import deepcopy
 from scipy.spatial.distance import pdist, squareform
@@ -95,7 +96,7 @@ def pbs_sample(data, pseudo_labels, a, alpha=0.85, pr=0.1, l=0.1):
     pr = torch.tensor(pr, dtype=torch.float32)
     p_pbs = torch.maximum(p_pbs, pr)
 
-    samples = torch.multinomial(p_pbs, int(data.num_nodes*l))[0]
+    samples = torch.multinomial(p_pbs, int(data.num_nodes*l))
 
     return samples
 
@@ -126,7 +127,8 @@ def sim_sample(data, pseudo_labels, sampler=None, encoder_model=None):
 
 def src_smote(adj, features, labels, portion=1.0, im_class_num=3):
     cluster_counts = torch.bincount(labels)
-    avg_number = int(labels.size(0) / cluster_counts.size(0))
+    cluster_counts = cluster_counts[cluster_counts > 1]
+    avg_number = int(cluster_counts.sum() / cluster_counts.size(0))
     minority_clusters = cluster_counts[cluster_counts < avg_number].size(0)
     im_class_num = min(im_class_num, minority_clusters)
 
@@ -136,14 +138,13 @@ def src_smote(adj, features, labels, portion=1.0, im_class_num=3):
     new_features = None
 
     idx_train = torch.arange(labels.shape[0]).to(device=adj.device)
+    min_samp = 42 if portion < 1 else 0
 
     for i in range(im_class_num):
         new_chosen = idx_train[(labels == (sample_idx[i]))[idx_train]]
         if portion == 0:  # refers to even distribution
             c_portion = int(avg_number / new_chosen.shape[0])
-
             portion_rest = (avg_number / new_chosen.shape[0]) - c_portion
-
         else:
             c_portion = int(portion)
             portion_rest = portion - c_portion
@@ -168,7 +169,7 @@ def src_smote(adj, features, labels, portion=1.0, im_class_num=3):
                 chosen = torch.cat((chosen, new_chosen), 0)
                 new_features = torch.cat((new_features, embed), 0)
 
-        num = int(new_chosen.shape[0] * portion_rest)
+        num = new_chosen.shape[0] if new_chosen.shape[0] < min_samp else int(new_chosen.shape[0] * portion_rest)
         new_chosen = new_chosen[:num]
         if num == 0:
             continue
@@ -214,11 +215,76 @@ def over_sample(data, pseudo_labels, portion=0.0):
     adj_part = to_dense_adj(data.edge_index)[0]
     adj = torch.zeros((data_clone.num_nodes, data_clone.num_nodes)).to(device=device)
     adj[:adj_part.size(0), :adj_part.size(1)] = adj_part
-    adj, features, labels = src_smote(adj, data_clone.x, pseudo_labels, portion=portion)
+    adj, features, pseudo_labels = src_smote(adj, data_clone.x, pseudo_labels, portion=portion)
     data_clone.x = features
     data_clone.edge_index = dense_to_sparse(adj)[0]
 
     return data_clone, pseudo_labels
+
+
+def cluster_with_outlier(encoder_model, data, eps=0.6, eps_gap=0.02):
+    device = data.x.device
+    z = encoder_model(data.x, data.edge_index, data.edge_attr)
+
+    data_array = z.cpu().detach().numpy()
+    eps_tight = eps - eps_gap
+    eps_loose = eps + eps_gap
+    min_cluster_size = min(24, int(data.x.size(0) / 42))
+    cluster = DBSCAN(eps=eps, min_samples=min_cluster_size, metric='euclidean', n_jobs=-1)
+    cluster_tight = DBSCAN(eps=eps_tight, min_samples=min_cluster_size, metric='euclidean', n_jobs=-1)
+    cluster_loose = DBSCAN(eps=eps_loose, min_samples=min_cluster_size, metric='euclidean', n_jobs=-1)
+
+    pseudo_labels = cluster.fit_predict(data_array)
+    pseudo_labels_tight = cluster_tight.fit_predict(data_array)
+    pseudo_labels_loose = cluster_loose.fit_predict(data_array)
+
+    def process_pseudo_labels(cluster_id):
+        max_label = max(cluster_id)
+        for i in range(len(cluster_id)):
+            if cluster_id[i] == -1:
+                max_label += 1
+                cluster_id[i] = max_label
+        return torch.from_numpy(cluster_id).long().to(device=device)
+
+    pseudo_labels = process_pseudo_labels(pseudo_labels)
+    pseudo_labels_tight = process_pseudo_labels(pseudo_labels_tight)
+    pseudo_labels_loose = process_pseudo_labels(pseudo_labels_loose)
+
+    # compute R_indep and R_comp
+    N = pseudo_labels.size(0)
+    label_sim = pseudo_labels.expand(N, N).eq(pseudo_labels.expand(N, N).t()).float()
+    label_sim_tight = pseudo_labels_tight.expand(N, N).eq(pseudo_labels_tight.expand(N, N).t()).float()
+    label_sim_loose = pseudo_labels_loose.expand(N, N).eq(pseudo_labels_loose.expand(N, N).t()).float()
+
+    R_comp = 1 - torch.min(label_sim, label_sim_tight).sum(-1) / torch.max(label_sim, label_sim_tight).sum(-1)
+    R_indep = 1 - torch.min(label_sim, label_sim_loose).sum(-1) / torch.max(label_sim, label_sim_loose).sum(-1)
+    assert ((R_comp.min() >= 0) and (R_comp.max() <= 1))
+    assert ((R_indep.min() >= 0) and (R_indep.max() <= 1))
+
+    cluster_R_comp, cluster_R_indep = collections.defaultdict(list), collections.defaultdict(list)
+    cluster_num = collections.defaultdict(int)
+    for i, (comp, indep, label) in enumerate(zip(R_comp, R_indep, pseudo_labels)):
+        cluster_R_comp[label.item()].append(comp.item())
+        cluster_R_indep[label.item()].append(indep.item())
+        cluster_num[label.item()] += 1
+
+    cluster_R_comp = [min(cluster_R_comp[i]) for i in sorted(cluster_R_comp.keys())]
+    cluster_R_indep = [min(cluster_R_indep[i]) for i in sorted(cluster_R_indep.keys())]
+    cluster_R_indep_noins = [iou for iou, num in zip(cluster_R_indep, sorted(cluster_num.keys())) if
+                             cluster_num[num] > 1]
+    indep_thres = np.sort(cluster_R_indep_noins)[
+        min(len(cluster_R_indep_noins) - 1, np.round(len(cluster_R_indep_noins) * 0.9).astype('int'))]
+
+    outliers = 0
+    for i, label in enumerate(pseudo_labels):
+        indep_score = cluster_R_indep[label.item()]
+        comp_score = R_comp[i]
+        if (not ((indep_score <= indep_thres) and (comp_score.item() <= cluster_R_comp[label.item()]))
+                and cluster_num[label.item()] > 1):
+            pseudo_labels[i] = len(cluster_R_indep) + outliers
+            outliers += 1
+
+    return pseudo_labels
 
 
 def cluster(encoder_model, data, num_clusters=10):
@@ -226,7 +292,6 @@ def cluster(encoder_model, data, num_clusters=10):
     z = encoder_model(data.x, data.edge_index, data.edge_attr)
 
     data_array = z.cpu().detach().numpy()
-
     kmeans = KMeans(n_clusters=num_clusters, random_state=0)
     cluster_labels = kmeans.fit_predict(data_array)
 
@@ -269,7 +334,8 @@ def edge_perturbation(edge_index, mask, disconnect_prob=0.05):
     return edge_index
 
 
-def rand_noise(data, labels):
+def rand_noise(data, labels, node_noise_std=0.1, edge_disc_prob=0.1):
+    device = data.x.device
     labels = labels.cpu().numpy()
     cluster_counts = np.bincount(labels)
     cluster_threshold = 1 / len(cluster_counts)
@@ -279,13 +345,13 @@ def rand_noise(data, labels):
     majority_indices = majority_indices.tolist()
 
     # add noise to data.x
-    data.x[majority_indices] = node_perturbation(data.x[majority_indices])
+    # data.x[majority_indices] = node_perturbation(data.x[majority_indices], noise_std=node_noise_std)
 
     # add noise to data.edge_index
     data.edge_index = data.edge_index.cpu().numpy()
     mask = np.isin(data.edge_index[0], majority_indices) | np.isin(data.edge_index[1], majority_indices)
-    data.edge_index = edge_perturbation(data.edge_index, mask, disconnect_prob=0.01)
-    data.edge_index = torch.from_numpy(data.edge_index).to(device=data.x.device)
+    data.edge_index = edge_perturbation(data.edge_index, mask, disconnect_prob=edge_disc_prob)
+    data.edge_index = torch.from_numpy(data.edge_index).to(device=device)
 
     return data
 
@@ -311,7 +377,7 @@ def test(encoder_model, data):
 def main():
     device = torch.device('cuda')
     path = osp.join(osp.expanduser('.'), 'datasets', 'Amazon')
-    dataset = Amazon(path, name='computers', transform=T.NormalizeFeatures())
+    dataset = Amazon(path, name='photo', transform=T.NormalizeFeatures())
     data = dataset[0].to(device)
 
     aug1 = A.Compose([A.EdgeRemoving(pe=0.5), A.FeatureMasking(pf=0.1)])
@@ -328,7 +394,7 @@ def main():
         warmup_epochs=400,
         max_epochs=4000)
 
-    B = 200
+    B = 100
     data_train = data.clone()
     with tqdm(total=4000, desc='(T)') as pbar:
         for epoch in range(1, 4001):
@@ -346,14 +412,21 @@ def main():
                 if data_train.x.size(0) <= 0.2 * data.x.size(0):
                     data_train = data.clone()
 
-                num_clusters = 100
-                pseudo_labels = cluster(encoder_model.encoder, data_train, num_clusters=num_clusters)
+                num_clusters = 42
+                # pseudo_labels = cluster(encoder_model.encoder, data_train, num_clusters=num_clusters)
+                pseudo_labels = cluster_with_outlier(encoder_model.encoder, data_train)
+
+                if data_train.edge_index.size(0)/data.edge_index.size(0) > 1.21*data_train.x.size(0)/data.x.size(0):
+                    data_train = rand_noise(data_train, pseudo_labels, edge_disc_prob=0.24)
+                    pseudo_labels = cluster_with_outlier(encoder_model.encoder, data_train)
                 if torch.unique(pseudo_labels).size(0) == 1:
                     data_train = data.clone()
                     pseudo_labels = cluster(encoder_model.encoder, data_train, num_clusters=num_clusters)
-                undersampler = NearMiss(version=3, sampling_strategy='majority', n_neighbors_ver3=20)
+
+                # undersampler = NearMiss(version=3, sampling_strategy='majority', n_neighbors_ver3=42)
+                undersampler = TomekLinks(sampling_strategy='majority')
                 data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, encoder_model.encoder)
-                data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=0.5)
+                data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=0.24)
 
                 save_path = f'data/saved_data_epoch_{epoch}.pt'
                 torch.save(data_train, save_path)
