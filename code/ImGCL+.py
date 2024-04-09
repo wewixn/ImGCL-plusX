@@ -8,6 +8,7 @@ from sklearn.cluster import KMeans, DBSCAN
 from torch_geometric.utils import add_self_loops, degree, subgraph, to_dense_adj, dense_to_sparse
 
 import collections
+import gc
 import random
 from copy import deepcopy
 from scipy.spatial.distance import pdist, squareform
@@ -128,6 +129,8 @@ def sim_sample(data, pseudo_labels, sampler=None, encoder_model=None):
 def src_smote(adj, features, labels, portion=1.0, im_class_num=3):
     cluster_counts = torch.bincount(labels)
     cluster_counts = cluster_counts[cluster_counts > 1]
+    if cluster_counts.size(0) == 1:
+        return adj, features, labels
     avg_number = int(cluster_counts.sum() / cluster_counts.size(0))
     minority_clusters = cluster_counts[cluster_counts < avg_number].size(0)
     im_class_num = min(im_class_num, minority_clusters)
@@ -240,10 +243,7 @@ def cluster_with_outlier(encoder_model, data, eps=0.6, eps_gap=0.02):
 
     def process_pseudo_labels(cluster_id):
         max_label = max(cluster_id)
-        for i in range(len(cluster_id)):
-            if cluster_id[i] == -1:
-                max_label += 1
-                cluster_id[i] = max_label
+        cluster_id[cluster_id == -1] = np.arange(max_label + 1, max_label + 1 + (cluster_id == -1).sum())
         return torch.from_numpy(cluster_id).long().to(device=device)
 
     pseudo_labels = process_pseudo_labels(pseudo_labels)
@@ -252,9 +252,9 @@ def cluster_with_outlier(encoder_model, data, eps=0.6, eps_gap=0.02):
 
     # compute R_indep and R_comp
     N = pseudo_labels.size(0)
-    label_sim = pseudo_labels.expand(N, N).eq(pseudo_labels.expand(N, N).t()).float()
-    label_sim_tight = pseudo_labels_tight.expand(N, N).eq(pseudo_labels_tight.expand(N, N).t()).float()
-    label_sim_loose = pseudo_labels_loose.expand(N, N).eq(pseudo_labels_loose.expand(N, N).t()).float()
+    label_sim = (pseudo_labels.view(N, 1) == pseudo_labels.view(1, N)).float()
+    label_sim_tight = (pseudo_labels_tight.view(N, 1) == pseudo_labels_tight.view(1, N)).float()
+    label_sim_loose = (pseudo_labels_loose.view(N, 1) == pseudo_labels_loose.view(1, N)).float()
 
     R_comp = 1 - torch.min(label_sim, label_sim_tight).sum(-1) / torch.max(label_sim, label_sim_tight).sum(-1)
     R_indep = 1 - torch.min(label_sim, label_sim_loose).sum(-1) / torch.max(label_sim, label_sim_loose).sum(-1)
@@ -268,12 +268,11 @@ def cluster_with_outlier(encoder_model, data, eps=0.6, eps_gap=0.02):
         cluster_R_indep[label.item()].append(indep.item())
         cluster_num[label.item()] += 1
 
-    cluster_R_comp = [min(cluster_R_comp[i]) for i in sorted(cluster_R_comp.keys())]
-    cluster_R_indep = [min(cluster_R_indep[i]) for i in sorted(cluster_R_indep.keys())]
-    cluster_R_indep_noins = [iou for iou, num in zip(cluster_R_indep, sorted(cluster_num.keys())) if
-                             cluster_num[num] > 1]
-    indep_thres = np.sort(cluster_R_indep_noins)[
-        min(len(cluster_R_indep_noins) - 1, np.round(len(cluster_R_indep_noins) * 0.9).astype('int'))]
+    cluster_R_comp = torch.tensor([min(cluster_R_comp[i]) for i in sorted(cluster_R_comp.keys())])
+    cluster_R_indep = torch.tensor([min(cluster_R_indep[i]) for i in sorted(cluster_R_indep.keys())])
+    cluster_R_indep_noins = cluster_R_indep[torch.tensor([cluster_num[num] > 1 for num in sorted(cluster_num.keys())])]
+    indep_thres = torch.sort(cluster_R_indep_noins)[0][
+        min(len(cluster_R_indep_noins) - 1, int(np.round(len(cluster_R_indep_noins) * 0.9)))]
 
     outliers = 0
     for i, label in enumerate(pseudo_labels):
@@ -325,7 +324,9 @@ def node_perturbation(nodes_feature, noise_std=0.1):
     return nodes_feature
 
 
-def edge_perturbation(edge_index, mask, disconnect_prob=0.05):
+def edge_perturbation(edge_index, mask=None, disconnect_prob=0.05):
+    if mask is None:
+        mask = torch.ones(edge_index.shape[1], dtype=torch.bool)
     selected_edges = edge_index[:, mask]
     disconnect_mask = np.random.rand(selected_edges.shape[1]) > disconnect_prob
     disconnected_edges = selected_edges[:, disconnect_mask]
@@ -334,24 +335,33 @@ def edge_perturbation(edge_index, mask, disconnect_prob=0.05):
     return edge_index
 
 
-def rand_noise(data, labels, node_noise_std=0.1, edge_disc_prob=0.1):
+def rand_noise(data, labels=None, node_noise_std=0.1, edge_disc_prob=0.1):
     device = data.x.device
-    labels = labels.cpu().numpy()
-    cluster_counts = np.bincount(labels)
-    cluster_threshold = 1 / len(cluster_counts)
-    majority_clusters = np.where((cluster_counts / len(labels)) > cluster_threshold)[0]
+    if labels is not None:
+        labels = labels.cpu().numpy()
+        cluster_counts = np.bincount(labels)
+        cluster_threshold = 1 / len(cluster_counts)
+        majority_clusters = np.where((cluster_counts / len(labels)) > cluster_threshold)[0]
 
-    majority_indices = np.concatenate([np.where(labels == cluster)[0] for cluster in majority_clusters])
-    majority_indices = majority_indices.tolist()
+        majority_indices = np.concatenate([np.where(labels == cluster)[0] for cluster in majority_clusters])
+        majority_indices = majority_indices.tolist()
 
-    # add noise to data.x
-    # data.x[majority_indices] = node_perturbation(data.x[majority_indices], noise_std=node_noise_std)
+        # add noise to data.x
+        # data.x[majority_indices] = node_perturbation(data.x[majority_indices], noise_std=node_noise_std)
 
-    # add noise to data.edge_index
-    data.edge_index = data.edge_index.cpu().numpy()
-    mask = np.isin(data.edge_index[0], majority_indices) | np.isin(data.edge_index[1], majority_indices)
-    data.edge_index = edge_perturbation(data.edge_index, mask, disconnect_prob=edge_disc_prob)
-    data.edge_index = torch.from_numpy(data.edge_index).to(device=device)
+        # add noise to data.edge_index
+        data.edge_index = data.edge_index.cpu().numpy()
+        mask = np.isin(data.edge_index[0], majority_indices) | np.isin(data.edge_index[1], majority_indices)
+        data.edge_index = edge_perturbation(data.edge_index, mask, disconnect_prob=edge_disc_prob)
+        data.edge_index = torch.from_numpy(data.edge_index).to(device=device)
+    else:
+        # add noise to data.x
+        # data.x = node_perturbation(data.x, noise_std=node_noise_std)
+
+        # add noise to data.edge_index
+        data.edge_index = data.edge_index.cpu().numpy()
+        data.edge_index = edge_perturbation(data.edge_index, disconnect_prob=edge_disc_prob)
+        data.edge_index = torch.from_numpy(data.edge_index).to(device=device)
 
     return data
 
@@ -409,19 +419,17 @@ def main():
                 # data_train.edge_index = remap_edge_index(data_train.edge_index, sample_mask, data.x.size(0))
                 # pseudo_labels = pseudo_labels[sample_mask]
 
-                if data_train.x.size(0) <= 0.2 * data.x.size(0):
+                if data_train.x.size(0) <= 0.2 * data.x.size(0) or data_train.x.size(0) >= 1.21 * data.x.size(0):
                     data_train = data.clone()
+                if data_train.edge_index.size(1)/data.edge_index.size(1) > data_train.x.size(0)/data.x.size(0):
+                    data_train = rand_noise(data_train, edge_disc_prob=0.24)
 
                 num_clusters = 42
                 # pseudo_labels = cluster(encoder_model.encoder, data_train, num_clusters=num_clusters)
-                pseudo_labels = cluster_with_outlier(encoder_model.encoder, data_train)
-
-                if data_train.edge_index.size(0)/data.edge_index.size(0) > 1.21*data_train.x.size(0)/data.x.size(0):
-                    data_train = rand_noise(data_train, pseudo_labels, edge_disc_prob=0.24)
-                    pseudo_labels = cluster_with_outlier(encoder_model.encoder, data_train)
-                if torch.unique(pseudo_labels).size(0) == 1:
-                    data_train = data.clone()
-                    pseudo_labels = cluster(encoder_model.encoder, data_train, num_clusters=num_clusters)
+                # if torch.unique(pseudo_labels).size(0) == 1:
+                #     data_train = data.clone()
+                #     pseudo_labels = cluster(encoder_model.encoder, data_train, num_clusters=num_clusters)
+                pseudo_labels = cluster_with_outlier(encoder_model.encoder, data_train, eps=0.52, eps_gap=0.03)
 
                 # undersampler = NearMiss(version=3, sampling_strategy='majority', n_neighbors_ver3=42)
                 undersampler = TomekLinks(sampling_strategy='majority')
@@ -444,6 +452,8 @@ if __name__ == '__main__':
     res = []
     for i in range(5):
         res.append(main())
+        torch.cuda.empty_cache()
+        gc.collect()
 
     for i in range(5):
         print(f'F1Mi={res[i]["micro_f1"]:.4f}, F1Ma={res[i]["macro_f1"]:.4f}')
