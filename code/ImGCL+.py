@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import torch_geometric.transforms as T
 from sklearn.cluster import KMeans, DBSCAN
 from torch_geometric.utils import add_self_loops, degree, subgraph, to_dense_adj, dense_to_sparse
+from torch.cuda.amp import autocast, GradScaler
 
 import collections
 import gc
@@ -366,13 +367,15 @@ def rand_noise(data, labels=None, node_noise_std=0.1, edge_disc_prob=0.1):
     return data
 
 
-def train(encoder_model, contrast_model, data, optimizer):
+def train(encoder_model, contrast_model, data, optimizer, scaler):
     encoder_model.train()
     optimizer.zero_grad()
-    _, z1, z2 = encoder_model(data.x, data.edge_index, data.edge_attr)
-    loss = contrast_model(z1, z2)
-    loss.backward()
-    optimizer.step()
+    with autocast():
+        _, z1, z2 = encoder_model(data.x, data.edge_index, data.edge_attr)
+        loss = contrast_model(z1, z2)
+    scaler.scale(loss).backward()
+    scaler.step(optimizer)
+    scaler.update()
     return loss.item()
 
 
@@ -398,43 +401,36 @@ def main():
     encoder_model = Encoder(encoder=gconv, augmentor=(aug1, aug2)).to(device)
     contrast_model = WithinEmbedContrast(loss=L.BarlowTwins()).to(device)
 
+    B = 50
+    total_epoch = 1000
+    scaler = GradScaler()
     optimizer = Adam(encoder_model.parameters(), lr=5e-4)
     scheduler = LinearWarmupCosineAnnealingLR(
         optimizer=optimizer,
-        warmup_epochs=400,
-        max_epochs=4000)
+        warmup_epochs=200,
+        max_epochs=total_epoch)
 
-    B = 100
     data_train = data.clone()
-    with tqdm(total=4000, desc='(T)') as pbar:
-        for epoch in range(1, 4001):
-            loss = train(encoder_model, contrast_model, data_train, optimizer)
+    with tqdm(total=total_epoch, desc='(T)') as pbar:
+        for epoch in range(1, total_epoch):
+            loss = train(encoder_model, contrast_model, data_train, optimizer, scaler)
             optimizer.zero_grad()
             if epoch % B == 0:
-                # num_clusters = min(int(data.x.size(0) / 100), 100)
-                # pseudo_labels = cluster(encoder_model.encoder, data, num_clusters=num_clusters).to(device)
-                # sample_mask = pbs_sample(data, pseudo_labels, 1-epoch/40)
-                # data_train.x = data.x[sample_mask]
-                # data_train.edge_index = subgraph(sample_mask, data.edge_index, num_nodes=data.x.size(0))[0]
-                # data_train.edge_index = remap_edge_index(data_train.edge_index, sample_mask, data.x.size(0))
-                # pseudo_labels = pseudo_labels[sample_mask]
-
                 if data_train.x.size(0) <= 0.2 * data.x.size(0) or data_train.x.size(0) >= 1.21 * data.x.size(0):
                     data_train = data.clone()
                 if data_train.edge_index.size(1)/data.edge_index.size(1) > data_train.x.size(0)/data.x.size(0):
                     data_train = rand_noise(data_train, edge_disc_prob=0.24)
 
-                num_clusters = 42
+                # num_clusters = 42
                 # pseudo_labels = cluster(encoder_model.encoder, data_train, num_clusters=num_clusters)
                 # if torch.unique(pseudo_labels).size(0) == 1:
                 #     data_train = data.clone()
                 #     pseudo_labels = cluster(encoder_model.encoder, data_train, num_clusters=num_clusters)
-                pseudo_labels = cluster_with_outlier(encoder_model.encoder, data_train, eps=0.52, eps_gap=0.03)
+                pseudo_labels = cluster_with_outlier(encoder_model.encoder, data_train, eps=0.54, eps_gap=0.03)
 
-                # undersampler = NearMiss(version=3, sampling_strategy='majority', n_neighbors_ver3=42)
-                undersampler = TomekLinks(sampling_strategy='majority')
-                data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, encoder_model.encoder)
                 data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=0.24)
+                undersampler = NeighbourhoodCleaningRule(sampling_strategy='majority')
+                data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, encoder_model.encoder)
 
                 save_path = f'data/saved_data_epoch_{epoch}.pt'
                 torch.save(data_train, save_path)
