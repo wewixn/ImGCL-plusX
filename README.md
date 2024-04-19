@@ -3,22 +3,15 @@
 
 
 ## Version Infomation
-可以使用以下命令安装大多数需要的包。其中torch、torchvision、dgl建议手动安装。torch-cluster、torch-scatter、torch-sparse、torch-spline-conv需要手动安装，建议在[torch_geometric-whl](https://pytorch-geometric.com/whl/)网站获取whl文件，再使用pip安装，以匹配各个包的版本。torch与torchvision也可以在[torch-whl](https://download.pytorch.org/whl/)网站查找符合的版本。
+可以使用以下命令安装需要的包。其中torch、torchvision、dgl建议手动安装。torch-cluster、torch-scatter、torch-sparse、torch-spline-conv需要手动安装，建议在[torch_geometric-whl](https://pytorch-geometric.com/whl/)网站获取whl文件，再使用pip安装，以匹配各个包的版本。torch与torchvision也可以在[torch-whl](https://download.pytorch.org/whl/)网站查找符合的版本。
 
-```
-pip install -r requirements.txt
-```
-dgl 2.0.0版本、torch与torchvision可以使用以下命令安装：
 ```
 pip install dgl==2.0.0 -f https://data.dgl.ai/wheels/repo.html
 pip install torch==2.2.0+cu121 -f https://download.pytorch.org/whl/torch/
 pip install torchvision==0.17.0+cu121 -f https://download.pytorch.org/whl/torchvision/
-```
-torch-cluster、torch-scatter、torch-sparse、torch-spline-conv手动安装：
-```
 pip install torch-cluster torch-scatter torch-sparse torch-spline-conv -f https://pytorch-geometric.com/whl/torch-2.2.0%2Bcu121.html
+pip install -r requirements.txt
 ```
-
 
 
 项目使用的库版本信息如下：
