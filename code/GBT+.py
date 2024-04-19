@@ -4,10 +4,10 @@ import GCL.losses as L
 import GCL.augmentors as A
 import torch.nn.functional as F
 import torch_geometric.transforms as T
+
 from sklearn.cluster import KMeans, DBSCAN
 from torch_geometric.utils import add_self_loops, degree, subgraph, to_dense_adj, dense_to_sparse
 from torch.cuda.amp import autocast, GradScaler
-
 import collections
 import gc
 import random
@@ -336,37 +336,6 @@ def edge_perturbation(edge_index, mask=None, disconnect_prob=0.05):
     return edge_index
 
 
-def rand_noise(data, labels=None, node_noise_std=0.1, edge_disc_prob=0.1):
-    device = data.x.device
-    if labels is not None:
-        labels = labels.cpu().numpy()
-        cluster_counts = np.bincount(labels)
-        cluster_threshold = 1 / len(cluster_counts)
-        majority_clusters = np.where((cluster_counts / len(labels)) > cluster_threshold)[0]
-
-        majority_indices = np.concatenate([np.where(labels == cluster)[0] for cluster in majority_clusters])
-        majority_indices = majority_indices.tolist()
-
-        # add noise to data.x
-        # data.x[majority_indices] = node_perturbation(data.x[majority_indices], noise_std=node_noise_std)
-
-        # add noise to data.edge_index
-        data.edge_index = data.edge_index.cpu().numpy()
-        mask = np.isin(data.edge_index[0], majority_indices) | np.isin(data.edge_index[1], majority_indices)
-        data.edge_index = edge_perturbation(data.edge_index, mask, disconnect_prob=edge_disc_prob)
-        data.edge_index = torch.from_numpy(data.edge_index).to(device=device)
-    else:
-        # add noise to data.x
-        # data.x = node_perturbation(data.x, noise_std=node_noise_std)
-
-        # add noise to data.edge_index
-        data.edge_index = data.edge_index.cpu().numpy()
-        data.edge_index = edge_perturbation(data.edge_index, disconnect_prob=edge_disc_prob)
-        data.edge_index = torch.from_numpy(data.edge_index).to(device=device)
-
-    return data
-
-
 def train(encoder_model, contrast_model, data, optimizer, scaler):
     encoder_model.train()
     optimizer.zero_grad()
@@ -389,8 +358,8 @@ def test(encoder_model, data):
 
 def main():
     device = torch.device('cuda')
-    path = osp.join(osp.expanduser('.'), 'datasets', 'Amazon')
-    dataset = Amazon(path, name='photo', transform=T.NormalizeFeatures())
+    path = osp.join(osp.expanduser('.'), 'datasets', 'WikiCS')
+    dataset = WikiCS(path, transform=T.NormalizeFeatures())
     data = dataset[0].to(device)
 
     aug1 = A.Compose([A.EdgeRemoving(pe=0.5), A.FeatureMasking(pf=0.1)])
@@ -404,33 +373,22 @@ def main():
     B = 50
     total_epoch = 1000
     scaler = GradScaler()
-    optimizer = Adam(encoder_model.parameters(), lr=5e-4)
+    optimizer = Adam(encoder_model.parameters(), lr=5e-4, weight_decay=1e-5)
     scheduler = LinearWarmupCosineAnnealingLR(
         optimizer=optimizer,
-        warmup_epochs=200,
+        warmup_epochs=100,
         max_epochs=total_epoch)
 
     data_train = data.clone()
     with tqdm(total=total_epoch, desc='(T)') as pbar:
-        for epoch in range(1, total_epoch):
+        for epoch in range(1, total_epoch+1):
             loss = train(encoder_model, contrast_model, data_train, optimizer, scaler)
-            optimizer.zero_grad()
-            if epoch % B == 0:
-                if data_train.x.size(0) <= 0.2 * data.x.size(0) or data_train.x.size(0) >= 1.21 * data.x.size(0):
-                    data_train = data.clone()
-                if data_train.edge_index.size(1)/data.edge_index.size(1) > data_train.x.size(0)/data.x.size(0):
-                    data_train = rand_noise(data_train, edge_disc_prob=0.24)
-
-                # num_clusters = 42
-                # pseudo_labels = cluster(encoder_model.encoder, data_train, num_clusters=num_clusters)
-                # if torch.unique(pseudo_labels).size(0) == 1:
-                #     data_train = data.clone()
-                #     pseudo_labels = cluster(encoder_model.encoder, data_train, num_clusters=num_clusters)
+            if epoch % B == 0 and epoch != total_epoch:
                 pseudo_labels = cluster_with_outlier(encoder_model.encoder, data_train, eps=0.54, eps_gap=0.03)
 
-                data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=0.24)
                 undersampler = NeighbourhoodCleaningRule(sampling_strategy='majority')
                 data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, encoder_model.encoder)
+                data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=0.24)
 
                 save_path = f'data/saved_data_epoch_{epoch}.pt'
                 torch.save(data_train, save_path)
@@ -445,11 +403,12 @@ def main():
 
 
 if __name__ == '__main__':
+    num_runs = 5
     res = []
-    for i in range(5):
+    for i in range(num_runs):
         res.append(main())
         torch.cuda.empty_cache()
         gc.collect()
 
-    for i in range(5):
+    for i in range(num_runs):
         print(f'F1Mi={res[i]["micro_f1"]:.4f}, F1Ma={res[i]["macro_f1"]:.4f}')
