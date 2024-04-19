@@ -8,6 +8,11 @@
 ```
 pip install -r requirements.txt
 ```
+dgl 2.0.0版本可以使用以下命令安装：
+```
+pip install dgl==2.0.0 -f https://data.dgl.ai/wheels/repo.html
+```
+
 
 项目使用的库版本信息如下：
 - python==3.9
