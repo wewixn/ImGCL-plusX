@@ -402,9 +402,6 @@ def main(total_epoch=1000, B=50, portion=0.24, eps=0.6, eps_gap=0.02):
                 data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, encoder_model.encoder)
                 data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=portion)
 
-                save_path = f'data/saved_data_epoch_{epoch}.pt'
-                torch.save(data_train, save_path)
-
             scheduler.step()
             pbar.set_postfix({'loss': loss})
             pbar.update()
