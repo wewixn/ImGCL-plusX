@@ -407,6 +407,7 @@ def main(total_epoch=1000, B=50, portion=0.24, eps=0.6, eps_gap=0.02):
             pbar.update()
 
     test_result = test(encoder_model, data)
+    print(f'params: total_epoch={total_epoch}, B={B}, portion={portion}, eps={eps}, eps_gap={eps_gap}')
     print(f'(E): Best test F1Mi={test_result["micro_f1"]:.4f}, F1Ma={test_result["macro_f1"]:.4f}')
     return test_result
 
