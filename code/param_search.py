@@ -350,19 +350,17 @@ def test(encoder_model, data):
 
 
 from sklearn.model_selection import GridSearchCV
-from sklearn.metrics import make_scorer, accuracy_score
 from sklearn.base import BaseEstimator
 
 class MyModel(BaseEstimator):
-    def __init__(self, total_epoch=1000, B=50, portion=0.24, eps=0.6, eps_gap=0.02):
+    def __init__(self, total_epoch=1000, B=50, eps=0.6, eps_gap=0.02):
         self.total_epoch = total_epoch
         self.B = B
-        self.portion = portion
         self.eps = eps
         self.eps_gap = eps_gap
 
     def fit(self, X, y=None):
-        res = main(total_epoch=self.total_epoch, B=self.B, portion=self.portion, eps=self.eps, eps_gap=self.eps_gap)
+        res = main(total_epoch=self.total_epoch, B=self.B, eps=self.eps, eps_gap=self.eps_gap)
         self.accuracy_ = res['micro_f1']
         return self
 
@@ -370,7 +368,9 @@ class MyModel(BaseEstimator):
         return self.accuracy_
 
 
-def main(total_epoch=1000, B=50, portion=0.24, eps=0.6, eps_gap=0.02):
+def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02):
+    initial_portion = 0.1
+    final_portion = 0.42
     device = torch.device('cuda')
     path = osp.join(osp.expanduser('.'), 'datasets', 'WikiCS')
     dataset = WikiCS(path, transform=T.NormalizeFeatures())
@@ -392,6 +392,7 @@ def main(total_epoch=1000, B=50, portion=0.24, eps=0.6, eps_gap=0.02):
         max_epochs=total_epoch)
 
     data_train = data.clone()
+    increment = (final_portion - initial_portion) / total_epoch
     with tqdm(total=total_epoch, desc='(T)') as pbar:
         for epoch in range(1, total_epoch+1):
             loss = train(encoder_model, contrast_model, data_train, optimizer, scaler)
@@ -400,6 +401,7 @@ def main(total_epoch=1000, B=50, portion=0.24, eps=0.6, eps_gap=0.02):
 
                 undersampler = NeighbourhoodCleaningRule(sampling_strategy='majority')
                 data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, encoder_model.encoder)
+                portion = min(final_portion, initial_portion + increment * epoch)
                 data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=portion)
 
             scheduler.step()
@@ -414,15 +416,14 @@ def main(total_epoch=1000, B=50, portion=0.24, eps=0.6, eps_gap=0.02):
 
 if __name__ == '__main__':
     param_grid = {
-        'total_epoch': [1000, 800],
+        'total_epoch': [1000],
         'B': [30],
-        'portion': [0.24, 0.42],
-        'eps': [0.5, 0.4, 0.6],
+        'eps': [0.42, 0.4, 0.44],
         'eps_gap': [0.02, 0.03]
     }
 
     model = MyModel()
-    grid_search = GridSearchCV(estimator=model, param_grid=param_grid, cv=2, scoring=make_scorer(accuracy_score))
+    grid_search = GridSearchCV(estimator=model, param_grid=param_grid, cv=2, scoring=None)
     grid_search.fit([0, 1], [0, 1])
 
     print(grid_search.best_params_)
