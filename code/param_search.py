@@ -104,7 +104,7 @@ def sim_sample(data, pseudo_labels, sampler=None, encoder_model=None):
     return data_clone, pseudo_labels
 
 
-def src_smote(adj, features, labels, portion=1.0, im_class_num=3, edge_delete_ratio1=0.4, edge_delete_ratio2=0.6):
+def src_smote(adj, features, labels, portion=1.0, im_class_num=3):
     cluster_counts = torch.bincount(labels)
     cluster_counts = cluster_counts[cluster_counts > 1]
     if cluster_counts.size(0) == 1:
@@ -177,22 +177,6 @@ def src_smote(adj, features, labels, portion=1.0, im_class_num=3, edge_delete_ra
     new_adj[adj_back.shape[0]:, :adj_back.shape[0]] = adj_back[chosen, :]
     new_adj[:adj_back.shape[0], adj_back.shape[0]:] = adj_back[:, chosen]
     new_adj[adj_back.shape[0]:, adj_back.shape[0]:] = adj_back[chosen, :][:, chosen]
-
-    # Select the newly generated edges
-    new_edges_1 = new_adj[adj_back.shape[0]:, :adj_back.shape[0]]
-    new_edges_2 = new_adj[adj_back.shape[0]:, adj_back.shape[0]:]
-    edge_indices_1 = torch.nonzero(new_edges_1)
-    edge_indices_2 = torch.nonzero(new_edges_2)
-    num_edges_1 = edge_indices_1.shape[0]
-    num_edges_2 = edge_indices_2.shape[0]
-    num_delete_1 = int(num_edges_1 * edge_delete_ratio1)
-    num_delete_2 = int(num_edges_2 * edge_delete_ratio2)
-    delete_indices_1 = torch.randperm(num_edges_1)[:num_delete_1]
-    delete_indices_2 = torch.randperm(num_edges_2)[:num_delete_2]
-    # Delete the selected edges from the adjacency matrix
-    new_adj[edge_indices_1[delete_indices_1, 0] + adj_back.shape[0], edge_indices_1[delete_indices_1, 1]] = 0
-    new_adj[edge_indices_1[delete_indices_1, 1], edge_indices_1[delete_indices_1, 0] + adj_back.shape[0]] = 0
-    new_adj[edge_indices_2[delete_indices_2, 0] + adj_back.shape[0], edge_indices_2[delete_indices_2, 1] + adj_back.shape[0]] = 0
 
     features_append = deepcopy(new_features)
     labels_append = deepcopy(labels[chosen])
@@ -349,7 +333,7 @@ def test(encoder_model, data):
     return result
 
 
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import RandomizedSearchCV
 from sklearn.base import BaseEstimator
 
 class MyModel(BaseEstimator):
@@ -370,7 +354,7 @@ class MyModel(BaseEstimator):
 
 def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02):
     initial_portion = 0.1
-    final_portion = 0.42
+    final_portion = 0.24
     device = torch.device('cuda')
     path = osp.join(osp.expanduser('.'), 'datasets', 'WikiCS')
     dataset = WikiCS(path, transform=T.NormalizeFeatures())
@@ -415,15 +399,15 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02):
 
 
 if __name__ == '__main__':
-    param_grid = {
+    param_dist = {
         'total_epoch': [1000],
-        'B': [30],
-        'eps': [0.42, 0.4, 0.44],
-        'eps_gap': [0.02, 0.03]
+        'B': [30, 50],
+        'eps': np.linspace(0.4, 0.52, 50).tolist(),
+        'eps_gap': np.linspace(0.02, 0.03, 5).tolist()
     }
 
     model = MyModel()
-    grid_search = GridSearchCV(estimator=model, param_grid=param_grid, cv=2, scoring=None)
+    grid_search = RandomizedSearchCV(estimator=model, param_distributions=param_dist, cv=2, scoring=None)
     grid_search.fit([0, 1], [0, 1])
 
     print(grid_search.best_params_)
