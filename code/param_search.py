@@ -150,6 +150,7 @@ def src_smote(adj, features, labels, portion=1.0, im_class_num=3):
                 chosen = torch.cat((chosen, new_chosen), 0)
                 new_features = torch.cat((new_features, embed), 0)
 
+        new_chosen = idx_train[(labels == (sample_idx[i]))[idx_train]]
         num = new_chosen.shape[0] if new_chosen.shape[0] < min_samp else int(new_chosen.shape[0] * portion_rest)
         new_chosen = new_chosen[:num]
         if num == 0:
@@ -407,7 +408,7 @@ if __name__ == '__main__':
     }
 
     model = MyModel()
-    grid_search = RandomizedSearchCV(estimator=model, param_distributions=param_dist, cv=2, scoring=None)
-    grid_search.fit([0, 1], [0, 1])
+    grid_search = RandomizedSearchCV(estimator=model, param_distributions=param_dist, cv=3, scoring=None)
+    grid_search.fit([0, 0, 1], [0, 1, 1])
 
     print(grid_search.best_params_)
