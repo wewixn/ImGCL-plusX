@@ -250,8 +250,11 @@ def cluster_with_outlier(encoder_model, data, eps=0.6, eps_gap=0.02):
     cluster_R_comp = torch.tensor([min(cluster_R_comp[i]) for i in sorted(cluster_R_comp.keys())])
     cluster_R_indep = torch.tensor([min(cluster_R_indep[i]) for i in sorted(cluster_R_indep.keys())])
     cluster_R_indep_noins = cluster_R_indep[torch.tensor([cluster_num[num] > 1 for num in sorted(cluster_num.keys())])]
-    indep_thres = torch.sort(cluster_R_indep_noins)[0][
-        min(len(cluster_R_indep_noins) - 1, int(np.round(len(cluster_R_indep_noins) * 0.9)))]
+    if len(cluster_R_indep_noins) == 0:
+        return pseudo_labels
+    else:
+        indep_thres = torch.sort(cluster_R_indep_noins)[0][
+            min(len(cluster_R_indep_noins) - 1, int(np.round(len(cluster_R_indep_noins) * 0.9)))]
 
     outliers = 0
     for i, label in enumerate(pseudo_labels):
@@ -354,8 +357,8 @@ class MyModel(BaseEstimator):
 
 
 def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02):
-    initial_portion = 0.1
-    final_portion = 0.24
+    initial_portion = 0.24
+    final_portion = 0.42
     device = torch.device('cuda')
     path = osp.join(osp.expanduser('.'), 'datasets', 'WikiCS')
     dataset = WikiCS(path, transform=T.NormalizeFeatures())
@@ -384,10 +387,10 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02):
             if epoch % B == 0 and epoch != total_epoch:
                 pseudo_labels = cluster_with_outlier(encoder_model.encoder, data_train, eps=eps, eps_gap=eps_gap)
 
-                undersampler = NeighbourhoodCleaningRule(sampling_strategy='majority')
-                data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, encoder_model.encoder)
                 portion = min(final_portion, initial_portion + increment * epoch)
                 data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=portion)
+                undersampler = NeighbourhoodCleaningRule(sampling_strategy='majority')
+                data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, encoder_model.encoder)
 
             scheduler.step()
             pbar.set_postfix({'loss': loss})
