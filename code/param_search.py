@@ -383,14 +383,14 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02):
         max_epochs=total_epoch)
 
     data_train = data.clone()
-    increment = (final_portion - initial_portion) / total_epoch
+    increment = (final_portion - initial_portion) / (np.ceil(total_epoch / B) - 1)
     with tqdm(total=total_epoch, desc='(T)') as pbar:
         for epoch in range(1, total_epoch+1):
             loss = train(encoder_model, contrast_model, data_train, optimizer, scaler)
             if epoch % B == 0 and epoch != total_epoch:
                 pseudo_labels = cluster_with_outlier(encoder_model.encoder, data_train, eps=eps, eps_gap=eps_gap)
 
-                portion = min(final_portion, initial_portion + increment * epoch)
+                portion = min(final_portion, initial_portion + increment * (epoch // B))
                 data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=portion)
                 undersampler = NeighbourhoodCleaningRule(sampling_strategy='majority')
                 data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, encoder_model.encoder)
