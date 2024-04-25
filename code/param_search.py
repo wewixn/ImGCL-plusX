@@ -173,6 +173,8 @@ def src_smote(adj, features, labels, portion=1.0, im_class_num=3):
             chosen = torch.cat((chosen, new_chosen), 0)
             new_features = torch.cat((new_features, embed), 0)
 
+    if chosen is None:
+        return adj, features, labels
     add_num = chosen.shape[0]
     new_adj = adj_back.new(torch.Size((adj_back.shape[0] + add_num, adj_back.shape[0] + add_num)))
     new_adj[:adj_back.shape[0], :adj_back.shape[0]] = adj_back[:, :]
