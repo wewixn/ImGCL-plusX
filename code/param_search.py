@@ -209,14 +209,14 @@ def over_sample(data, pseudo_labels, portion=0.0):
     return data_clone, pseudo_labels
 
 
-def cluster_with_outlier(encoder_model, data, eps=0.6, eps_gap=0.02):
+def cluster_with_outlier(encoder_model, data, eps=0.6, eps_gap=0.02, min_cluster_size=24):
     device = data.x.device
     z = encoder_model(data.x, data.edge_index, data.edge_attr)
 
     data_array = z.cpu().detach().numpy()
     eps_tight = eps - eps_gap
     eps_loose = eps + eps_gap
-    min_cluster_size = min(24, int(data.x.size(0) / 42))
+    min_cluster_size = min(min_cluster_size, int(data.x.size(0) / 42))
     cluster = DBSCAN(eps=eps, min_samples=min_cluster_size, metric='euclidean', n_jobs=-1)
     cluster_tight = DBSCAN(eps=eps_tight, min_samples=min_cluster_size, metric='euclidean', n_jobs=-1)
     cluster_loose = DBSCAN(eps=eps_loose, min_samples=min_cluster_size, metric='euclidean', n_jobs=-1)
@@ -256,7 +256,7 @@ def cluster_with_outlier(encoder_model, data, eps=0.6, eps_gap=0.02):
     cluster_R_indep = torch.tensor([min(cluster_R_indep[i]) for i in sorted(cluster_R_indep.keys())])
     cluster_R_indep_noins = cluster_R_indep[torch.tensor([cluster_num[num] > 1 for num in sorted(cluster_num.keys())])]
     if len(cluster_R_indep_noins) == 0:
-        return pseudo_labels
+        raise ValueError(f"Parameter Error. No cluster is detected. eps={eps}, eps_gap={eps_gap}, min_cluster_size={min_cluster_size}")
     else:
         indep_thres = torch.sort(cluster_R_indep_noins)[0][
             min(len(cluster_R_indep_noins) - 1, int(np.round(len(cluster_R_indep_noins) * 0.9)))]
@@ -346,22 +346,27 @@ from sklearn.model_selection import RandomizedSearchCV
 from sklearn.base import BaseEstimator
 
 class MyModel(BaseEstimator):
-    def __init__(self, total_epoch=1000, B=50, eps=0.6, eps_gap=0.02):
+    def __init__(self, total_epoch=1000, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
         self.total_epoch = total_epoch
         self.B = B
         self.eps = eps
         self.eps_gap = eps_gap
+        self.min_cluster_size = min_cluster_size
 
     def fit(self, X, y=None):
-        res = main(total_epoch=self.total_epoch, B=self.B, eps=self.eps, eps_gap=self.eps_gap)
-        self.accuracy_ = res['micro_f1']
+        try:
+            res = main(total_epoch=self.total_epoch, B=self.B, eps=self.eps, eps_gap=self.eps_gap, min_cluster_size=self.min_cluster_size)
+            self.accuracy_ = res['micro_f1']
+        except ValueError as e:
+            self.accuracy_ = 0
+            print(f"Skipping parameters. {e}")
         return self
 
     def score(self, X, y=None):
         return self.accuracy_
 
 
-def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02):
+def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
     initial_portion = 0.24
     final_portion = 0.42
     device = torch.device('cuda')
@@ -394,7 +399,7 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02):
                     data_train = data.clone()
                 if data_train.edge_index.size(1) >= 1.21 * data.edge_index.size(1):
                     data_train = data.clone()
-                pseudo_labels = cluster_with_outlier(encoder_model.encoder, data_train, eps=eps, eps_gap=eps_gap)
+                pseudo_labels = cluster_with_outlier(encoder_model.encoder, data_train, eps=eps, eps_gap=eps_gap, min_cluster_size=min_cluster_size)
 
                 portion = min(final_portion, initial_portion + increment * (epoch // B))
                 data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=portion)
@@ -406,11 +411,11 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02):
             pbar.update()
 
     test_result = test(encoder_model, data)
-    print(f'params: total_epoch={total_epoch}, B={B}, portion={portion}, eps={eps}, eps_gap={eps_gap}')
+    print(f'params: total_epoch={total_epoch}, B={B}, portion={portion}, eps={eps}, eps_gap={eps_gap}, min_cluster_size={min_cluster_size}')
     print(f'(E): Best test F1Mi={test_result["micro_f1"]:.4f}, F1Ma={test_result["macro_f1"]:.4f}')
     if not osp.exists('results'):
         os.makedirs('results')
-    with open(f'results/{B}_{eps}_{eps_gap}.txt', 'w') as f:
+    with open(f'results/{B}_{eps}_{eps_gap}_{min_cluster_size}.txt', 'w') as f:
         f.write(f'(E): Best test F1Mi={test_result["micro_f1"]:.4f}, F1Ma={test_result["macro_f1"]:.4f}')
     return test_result
 
@@ -419,8 +424,9 @@ if __name__ == '__main__':
     param_dist = {
         'total_epoch': [1000],
         'B': [30, 50],
-        'eps': np.linspace(0.4, 0.52, 50).tolist(),
-        'eps_gap': np.linspace(0.02, 0.03, 5).tolist()
+        'eps': np.linspace(0.4, 0.72, 100).tolist(),
+        'eps_gap': np.linspace(0.02, 0.03, 5).tolist(),
+        'min_cluster_size': range(8, 30, 2)
     }
 
     model = MyModel()
