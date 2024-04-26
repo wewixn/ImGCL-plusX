@@ -360,6 +360,7 @@ class MyModel(BaseEstimator):
         except ValueError as e:
             self.accuracy_ = 0
             print(f"Skipping parameters. {e}")
+            raise
         return self
 
     def score(self, X, y=None):
@@ -430,7 +431,11 @@ if __name__ == '__main__':
     }
 
     model = MyModel()
-    grid_search = RandomizedSearchCV(estimator=model, param_distributions=param_dist, cv=3, scoring=None)
-    grid_search.fit([0, 0, 1], [0, 1, 1])
+    try:
+        grid_search = RandomizedSearchCV(estimator=model, param_distributions=param_dist, cv=3, scoring=None)
+        grid_search.fit([0, 0, 1], [0, 1, 1])
+    except ValueError as e:
+        print(f"Skipping parameters. {e}")
 
     print(grid_search.best_params_)
+    print(grid_search.best_score_)
