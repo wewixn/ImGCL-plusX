@@ -40,10 +40,11 @@ class GAT(torch.nn.Module):
 
 
 class GConv(torch.nn.Module):
-    def __init__(self, input_dim, hidden_dim):
+    def __init__(self, input_dim, hidden_dim, dropout=0.5):
         super(GConv, self).__init__()
         self.act = torch.nn.PReLU()
         self.bn = torch.nn.BatchNorm1d(2 * hidden_dim, momentum=0.01)
+        self.dropout = torch.nn.Dropout(dropout)
         self.conv1 = GCNConv(input_dim, 2 * hidden_dim, cached=False)
         self.conv2 = GCNConv(2 * hidden_dim, hidden_dim, cached=False)
 
@@ -51,6 +52,7 @@ class GConv(torch.nn.Module):
         z = self.conv1(x, edge_index, edge_weight)
         z = self.bn(z)
         z = self.act(z)
+        z = self.dropout(z)
         z = self.conv2(z, edge_index, edge_weight)
         return z
 
@@ -388,6 +390,10 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02):
         for epoch in range(1, total_epoch+1):
             loss = train(encoder_model, contrast_model, data_train, optimizer, scaler)
             if epoch % B == 0 and epoch != total_epoch:
+                if data_train.x.size(0) <= 0.2 * data.x.size(0) or data_train.x.size(0) >= 1.21 * data.x.size(0):
+                    data_train = data.clone()
+                if data_train.edge_index.size(1) >= 1.21 * data.edge_index.size(1):
+                    data_train = data.clone()
                 pseudo_labels = cluster_with_outlier(encoder_model.encoder, data_train, eps=eps, eps_gap=eps_gap)
 
                 portion = min(final_portion, initial_portion + increment * (epoch // B))
