@@ -24,16 +24,6 @@ from torch_geometric.datasets import Amazon, WikiCS, Planetoid
 from pl_bolts.optimizers import LinearWarmupCosineAnnealingLR
 
 
-def set_seed(seed):
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    np.random.seed(seed)
-    random.seed(seed)
-
-
 class GAT(torch.nn.Module):
     def __init__(self, num_features, num_hidden):
         super(GAT, self).__init__()
@@ -432,7 +422,6 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
 
 
 if __name__ == '__main__':
-    set_seed(42)
     param_dist = {
         'total_epoch': [1000],
         'B': [30, 50],
