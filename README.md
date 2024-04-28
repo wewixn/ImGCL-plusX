@@ -27,18 +27,37 @@ pip install -r requirements.txt
 
 项目结果如下。
 
-| 数据集/方法       | 无权重 | 无权重+加噪 | 权重 | 权重+加噪 |
-|------------------|--------|-------------|------|-----------|
-|                  |        |             |      |           |
-| ---------------- | ------ | ----------- | ---- | --------- |
-| **WikiCS**       |        |             |      |           |
-| ImGCL            | 0.7876 | **0.8065**  | 0.7851 | 0.7889  |
-| ImGCL+TL         | 0.7864 | 0.8685      | 0.7803 | 0.7862  |
-|                  |        |             |      |           |
-| **Amazon-Computers** |        |         |      |           |
-| ImGCL            | 0.8394 | 0.8425      | 0.8383 | 0.8308  |
-| ImGCL+TL         | 0.8752 | 0.8685      | **0.8774** | 0.8755 |
-|                  |        |             |      |           |
-| **Amazon-Photo** |        |             |      |           |
-| ImGCL            | 0.9049 | 0.9026      | 0.9092 | 0.9082  |
-| ImGCL+TL         | 0.9213 | **0.9304**  | 0.9150 | 0.9223  |
+<table>
+  <tr>
+    <th rowspan="2">数据集/方法</th>
+    <th colspan="2">base(GBT)</th>
+    <th colspan="2">PSGCL(ours)</th>
+  </tr>
+  <tr>
+    <td>micro-F1</td>
+    <td>macro-F1</td>
+    <td>micro-F1</td>
+    <td>macro-F1</td>
+  </tr>
+  <tr>
+    <td><strong>WikiCS</strong></td>
+    <td>0.7884</td>
+    <td>0.7612</td>
+    <td>0.8010</td>
+    <td>0.7700</td>
+  </tr>
+  <tr>
+    <td><strong>Amazon-Photo</strong></td>
+    <td>0.9163</td>
+    <td>0.8953</td>
+    <td></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td><strong>cora</strong></td>
+    <td>0.7787</td>
+    <td>0.7697</td>
+    <td>0.8219</td>
+    <td>0.8131</td>
+  </tr>
+</table>
