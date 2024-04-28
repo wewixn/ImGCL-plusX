@@ -226,14 +226,14 @@ def over_sample(data, pseudo_labels, portion=0.0):
     return data_clone, pseudo_labels
 
 
-def cluster_with_outlier(encoder_model, data, eps=0.6, eps_gap=0.02):
+def cluster_with_outlier(encoder_model, data, eps=0.6, eps_gap=0.02, min_cluster_size=28):
     device = data.x.device
     z = encoder_model(data.x, data.edge_index, data.edge_attr)
 
     data_array = z.cpu().detach().numpy()
     eps_tight = eps - eps_gap
     eps_loose = eps + eps_gap
-    min_cluster_size = min(24, int(data.x.size(0) / 42))
+    min_cluster_size = min(min_cluster_size, int(data.x.size(0) / 42))
     cluster = DBSCAN(eps=eps, min_samples=min_cluster_size, metric='euclidean', n_jobs=-1)
     cluster_tight = DBSCAN(eps=eps_tight, min_samples=min_cluster_size, metric='euclidean', n_jobs=-1)
     cluster_loose = DBSCAN(eps=eps_loose, min_samples=min_cluster_size, metric='euclidean', n_jobs=-1)
@@ -356,7 +356,7 @@ def test(encoder_model, data):
     return result
 
 
-def main():
+def main(total_epoch=1000, B=50, eps=0.5, eps_gap=0.02, min_cluster_size=28, initial_portion=0.24, final_portion=0.42):
     device = torch.device('cuda')
     path = osp.join(osp.expanduser('.'), 'datasets', 'WikiCS')
     dataset = WikiCS(path, transform=T.NormalizeFeatures())
@@ -366,12 +366,9 @@ def main():
     aug2 = A.Compose([A.EdgeRemoving(pe=0.5), A.FeatureMasking(pf=0.1)])
 
     gconv = GConv(input_dim=dataset.num_features, hidden_dim=256).to(device)
-    gat = GAT(num_features=dataset.num_features, num_hidden=64).to(device)
     encoder_model = Encoder(encoder=gconv, augmentor=(aug1, aug2)).to(device)
     contrast_model = WithinEmbedContrast(loss=L.BarlowTwins()).to(device)
 
-    B = 50
-    total_epoch = 1000
     scaler = GradScaler()
     optimizer = Adam(encoder_model.parameters(), lr=5e-4, weight_decay=1e-5)
     scheduler = LinearWarmupCosineAnnealingLR(
@@ -380,15 +377,22 @@ def main():
         max_epochs=total_epoch)
 
     data_train = data.clone()
+    increment = (final_portion - initial_portion) / (np.ceil(total_epoch / B) - 1)
     with tqdm(total=total_epoch, desc='(T)') as pbar:
         for epoch in range(1, total_epoch+1):
             loss = train(encoder_model, contrast_model, data_train, optimizer, scaler)
-            if epoch % B == 0 and epoch != total_epoch:
-                pseudo_labels = cluster_with_outlier(encoder_model.encoder, data_train, eps=0.54, eps_gap=0.03)
+            if epoch % B == 0 and epoch != total_epoch and epoch > 100:
+                if data_train.x.size(0) <= 0.2 * data.x.size(0) or data_train.x.size(0) >= 1.21 * data.x.size(0):
+                    data_train = data.clone()
+                if data_train.edge_index.size(1) >= 1.21 * data.edge_index.size(1):
+                    data_train = data.clone()
 
+                pseudo_labels = cluster_with_outlier(encoder_model.encoder, data_train, eps=eps, eps_gap=eps_gap, min_cluster_size=min_cluster_size)
+
+                portion = min(final_portion, initial_portion + increment * (epoch // B))
+                data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=portion)
                 undersampler = NeighbourhoodCleaningRule(sampling_strategy='majority')
                 data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, encoder_model.encoder)
-                data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=0.24)
 
             scheduler.step()
             pbar.set_postfix({'loss': loss})
@@ -402,10 +406,32 @@ def main():
 if __name__ == '__main__':
     num_runs = 5
     res = []
+    total_epoch = 1000
+    # WikiCS
+    # B = 50
+    # eps = 0.5357575757575758
+    # eps_gap = 5
+    # min_cluster_size = 28
+
+    # cora
+    # B = 30
+    # eps = 76/3
+    # eps_gap = 5
+    # min_cluster_size = 14
+
+    B = 50
+    eps = 86 / 3
+    eps_gap = 6
+    min_cluster_size = 28
+
+    initial_portion = 0.24
+    final_portion = 0.42
+
     for i in range(num_runs):
-        res.append(main())
+        res.append(main(total_epoch, B, eps, eps_gap, min_cluster_size, initial_portion, final_portion))
         torch.cuda.empty_cache()
         gc.collect()
 
     for i in range(num_runs):
         print(f'F1Mi={res[i]["micro_f1"]:.4f}, F1Ma={res[i]["macro_f1"]:.4f}')
+    print(f'均值F1Mi={np.mean([r["micro_f1"] for r in res]):.4f}, F1Ma={np.mean([r["macro_f1"] for r in res]):.4f}')
