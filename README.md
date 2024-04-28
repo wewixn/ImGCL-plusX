@@ -43,15 +43,15 @@ pip install -r requirements.txt
     <td><strong>WikiCS</strong></td>
     <td>0.7884</td>
     <td>0.7612</td>
-    <td>0.8010</td>
-    <td>0.7700</td>
+    <td>0.7964</td>
+    <td>0.7693</td>
   </tr>
   <tr>
     <td><strong>Amazon-Photo</strong></td>
     <td>0.9163</td>
     <td>0.8953</td>
-    <td></td>
-    <td></td>
+    <td>0.9299</td>
+    <td>0.9112</td>
   </tr>
   <tr>
     <td><strong>cora</strong></td>
