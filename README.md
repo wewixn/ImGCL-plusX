@@ -57,7 +57,7 @@ pip install -r requirements.txt
     <td><strong>cora</strong></td>
     <td>0.7787</td>
     <td>0.7697</td>
-    <td>0.8000</td>
-    <td>0.7882</td>
+    <td>0.8041</td>
+    <td>0.7901</td>
   </tr>
 </table>
