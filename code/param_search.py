@@ -356,15 +356,15 @@ class MyModel(BaseEstimator):
     def fit(self, X, y=None):
         try:
             res = main(total_epoch=self.total_epoch, B=self.B, eps=self.eps, eps_gap=self.eps_gap, min_cluster_size=self.min_cluster_size)
-            self.accuracy_ = res['micro_f1']
+            self.scores_ = {'micro_f1': res['micro_f1'], 'macro_f1': res['macro_f1']}
         except ValueError as e:
-            self.accuracy_ = 0
+            self.scores_ = {'micro_f1': 0, 'macro_f1': 0}
             print(f"Skipping parameters. {e}")
             raise
         return self
 
     def score(self, X, y=None):
-        return self.accuracy_
+        return self.scores_
 
 
 def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
@@ -430,8 +430,10 @@ if __name__ == '__main__':
     }
 
     model = MyModel()
+    def my_scorer(estimator, X, y):
+        return estimator.score([])['micro_f1']
     try:
-        grid_search = RandomizedSearchCV(estimator=model, param_distributions=param_dist, cv=5, scoring=None)
+        grid_search = RandomizedSearchCV(estimator=model, param_distributions=param_dist, cv=5, scoring=my_scorer)
         grid_search.fit([0, 0, 1, 1, 1], [0, 1, 1, 1, 0])
     except ValueError as e:
         print(f"Skipping parameters. {e}")
