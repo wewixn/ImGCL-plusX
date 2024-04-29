@@ -1,3 +1,4 @@
+import os
 import torch
 import os.path as osp
 import GCL.losses as L
@@ -98,7 +99,7 @@ def sim_sample(data, pseudo_labels, sampler=None, encoder_model=None):
     return data_clone, pseudo_labels
 
 
-def src_smote(adj, features, labels, portion=1.0, im_class_num=3, edge_delete_ratio1=0.4, edge_delete_ratio2=0.6):
+def src_smote(adj, features, labels, portion=1.0, im_class_num=3):
     cluster_counts = torch.bincount(labels)
     cluster_counts = cluster_counts[cluster_counts > 1]
     if cluster_counts.size(0) == 1:
@@ -144,6 +145,7 @@ def src_smote(adj, features, labels, portion=1.0, im_class_num=3, edge_delete_ra
                 chosen = torch.cat((chosen, new_chosen), 0)
                 new_features = torch.cat((new_features, embed), 0)
 
+        new_chosen = idx_train[(labels == (sample_idx[i]))[idx_train]]
         num = new_chosen.shape[0] if new_chosen.shape[0] < min_samp else int(new_chosen.shape[0] * portion_rest)
         new_chosen = new_chosen[:num]
         if num == 0:
@@ -165,28 +167,14 @@ def src_smote(adj, features, labels, portion=1.0, im_class_num=3, edge_delete_ra
             chosen = torch.cat((chosen, new_chosen), 0)
             new_features = torch.cat((new_features, embed), 0)
 
+    if chosen is None:
+        return adj, features, labels
     add_num = chosen.shape[0]
     new_adj = adj_back.new(torch.Size((adj_back.shape[0] + add_num, adj_back.shape[0] + add_num)))
     new_adj[:adj_back.shape[0], :adj_back.shape[0]] = adj_back[:, :]
     new_adj[adj_back.shape[0]:, :adj_back.shape[0]] = adj_back[chosen, :]
     new_adj[:adj_back.shape[0], adj_back.shape[0]:] = adj_back[:, chosen]
     new_adj[adj_back.shape[0]:, adj_back.shape[0]:] = adj_back[chosen, :][:, chosen]
-
-    # Select the newly generated edges
-    new_edges_1 = new_adj[adj_back.shape[0]:, :adj_back.shape[0]]
-    new_edges_2 = new_adj[adj_back.shape[0]:, adj_back.shape[0]:]
-    edge_indices_1 = torch.nonzero(new_edges_1)
-    edge_indices_2 = torch.nonzero(new_edges_2)
-    num_edges_1 = edge_indices_1.shape[0]
-    num_edges_2 = edge_indices_2.shape[0]
-    num_delete_1 = int(num_edges_1 * edge_delete_ratio1)
-    num_delete_2 = int(num_edges_2 * edge_delete_ratio2)
-    delete_indices_1 = torch.randperm(num_edges_1)[:num_delete_1]
-    delete_indices_2 = torch.randperm(num_edges_2)[:num_delete_2]
-    # Delete the selected edges from the adjacency matrix
-    new_adj[edge_indices_1[delete_indices_1, 0] + adj_back.shape[0], edge_indices_1[delete_indices_1, 1]] = 0
-    new_adj[edge_indices_1[delete_indices_1, 1], edge_indices_1[delete_indices_1, 0] + adj_back.shape[0]] = 0
-    new_adj[edge_indices_2[delete_indices_2, 0] + adj_back.shape[0], edge_indices_2[delete_indices_2, 1] + adj_back.shape[0]] = 0
 
     features_append = deepcopy(new_features)
     labels_append = deepcopy(labels[chosen])
@@ -213,28 +201,14 @@ def over_sample(data, pseudo_labels, portion=0.0):
     return data_clone, pseudo_labels
 
 
-def random_sample(data, sample_rate=0.5):
-    device = data.x.device
-    num_nodes = data.num_nodes
-    sample_size = int(num_nodes * sample_rate)
-    rand_indices = torch.randperm(num_nodes)[:sample_size].to(device=device)
-
-    sampled_data = data.clone()
-    sampled_data.x = data.x[rand_indices]
-    sampled_data.edge_index = subgraph(rand_indices, data.edge_index, num_nodes=num_nodes)[0]
-    sampled_data.edge_index = remap_edge_index(sampled_data.edge_index, rand_indices, num_nodes)
-
-    return sampled_data
-
-
-def cluster_with_outlier(encoder_model, data, eps=0.6, eps_gap=0.02):
+def cluster_with_outlier(encoder_model, data, eps=0.6, eps_gap=0.02, min_cluster_size=24):
     device = data.x.device
     z = encoder_model(data.x, data.edge_index, data.edge_attr)
 
     data_array = z.cpu().detach().numpy()
     eps_tight = eps - eps_gap
     eps_loose = eps + eps_gap
-    min_cluster_size = min(24, int(data.x.size(0) / 42))
+    min_cluster_size = min(min_cluster_size, int(data.x.size(0) / 42))
     cluster = DBSCAN(eps=eps, min_samples=min_cluster_size, metric='euclidean', n_jobs=-1)
     cluster_tight = DBSCAN(eps=eps_tight, min_samples=min_cluster_size, metric='euclidean', n_jobs=-1)
     cluster_loose = DBSCAN(eps=eps_loose, min_samples=min_cluster_size, metric='euclidean', n_jobs=-1)
@@ -273,8 +247,11 @@ def cluster_with_outlier(encoder_model, data, eps=0.6, eps_gap=0.02):
     cluster_R_comp = torch.tensor([min(cluster_R_comp[i]) for i in sorted(cluster_R_comp.keys())])
     cluster_R_indep = torch.tensor([min(cluster_R_indep[i]) for i in sorted(cluster_R_indep.keys())])
     cluster_R_indep_noins = cluster_R_indep[torch.tensor([cluster_num[num] > 1 for num in sorted(cluster_num.keys())])]
-    indep_thres = torch.sort(cluster_R_indep_noins)[0][
-        min(len(cluster_R_indep_noins) - 1, int(np.round(len(cluster_R_indep_noins) * 0.9)))]
+    if len(cluster_R_indep_noins) == 0:
+        raise ValueError(f"Parameter Error. No cluster is detected. eps={eps}, eps_gap={eps_gap}, min_cluster_size={min_cluster_size}")
+    else:
+        indep_thres = torch.sort(cluster_R_indep_noins)[0][
+            min(len(cluster_R_indep_noins) - 1, int(np.round(len(cluster_R_indep_noins) * 0.9)))]
 
     outliers = 0
     for i, label in enumerate(pseudo_labels):
@@ -298,8 +275,6 @@ def train(encoder_model, contrast_model, data, optimizer, scaler):
     scaler.scale(loss).backward()
     scaler.step(optimizer)
     scaler.update()
-    # loss.backward()
-    # optimizer.step()
     return loss.item()
 
 
@@ -311,7 +286,37 @@ def test(encoder_model, data):
     return result
 
 
-def main():
+from sklearn.model_selection import RandomizedSearchCV
+from sklearn.base import BaseEstimator
+
+class MyModel(BaseEstimator):
+    def __init__(self, total_epoch=1000, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
+        self.total_epoch = total_epoch
+        self.B = B
+        self.eps = eps
+        self.eps_gap = eps_gap
+        self.min_cluster_size = min_cluster_size
+
+    def fit(self, X, y=None):
+        try:
+            res = main(total_epoch=self.total_epoch, B=self.B, eps=self.eps, eps_gap=self.eps_gap, min_cluster_size=self.min_cluster_size)
+            self.scores_ = {'micro_f1': res['micro_f1'], 'macro_f1': res['macro_f1']}
+        except ValueError as e:
+            self.scores_ = {'micro_f1': 0, 'macro_f1': 0}
+            print(f"Skipping parameters. {e}")
+            raise
+        return self
+
+    def score(self, X, y=None):
+        return self.scores_['micro_f1']
+
+    def get_results(self):
+        return self.scores_
+
+
+def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
+    initial_portion = 0.24
+    final_portion = 0.42
     device = torch.device('cuda')
     path = osp.join(osp.expanduser('.'), 'datasets', 'Amazon')
     dataset = Amazon(path, name='photo', transform=T.NormalizeFeatures())
@@ -327,25 +332,52 @@ def main():
     contrast_model = DataParallel(contrast_model)
     optimizer = Adam(encoder_model.parameters(), lr=0.01)
     scaler = GradScaler()
-    B = 50
-    total_epoch = 1000
+
     data_train = data.clone()
+    increment = (final_portion - initial_portion) / (np.ceil(total_epoch / B) - 1)
     with tqdm(total=total_epoch, desc='(T)') as pbar:
         for epoch in range(1, total_epoch+1):
-            with autocast():
-                loss = train(encoder_model, contrast_model, data_train, optimizer, scaler)
-            if epoch % B == 0 and epoch != total_epoch:
-                pseudo_labels = cluster_with_outlier(encoder_model.module.encoder, data_train, eps=0.6, eps_gap=0.02)
+            loss = train(encoder_model, contrast_model, data_train, optimizer, scaler)
+            if epoch % B == 0 and epoch != total_epoch and epoch > 100:
+                if data_train.x.size(0) <= 0.2 * data.x.size(0) or data_train.x.size(0) >= 1.21 * data.x.size(0):
+                    data_train = data.clone()
+                if data_train.edge_index.size(1) >= 1.21 * data.edge_index.size(1):
+                    data_train = data.clone()
+                pseudo_labels = cluster_with_outlier(encoder_model.encoder, data_train, eps=eps, eps_gap=eps_gap, min_cluster_size=min_cluster_size)
+
+                portion = min(final_portion, initial_portion + increment * (epoch // B))
+                data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=portion)
                 undersampler = NeighbourhoodCleaningRule(sampling_strategy='majority')
-                data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, encoder_model.module.encoder)
-                data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=0.42)
+                data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, encoder_model.encoder)
 
             pbar.set_postfix({'loss': loss})
             pbar.update()
 
     test_result = test(encoder_model, data)
+    print(f'params: total_epoch={total_epoch}, B={B}, portion={portion}, eps={eps}, eps_gap={eps_gap}, min_cluster_size={min_cluster_size}')
     print(f'(E): Best test F1Mi={test_result["micro_f1"]:.4f}, F1Ma={test_result["macro_f1"]:.4f}')
+    if not osp.exists('results'):
+        os.makedirs('results')
+    with open(f'results/{B}_{eps}_{eps_gap}_{min_cluster_size}.txt', 'w') as f:
+        f.write(f'(E): Best test F1Mi={test_result["micro_f1"]:.4f}, F1Ma={test_result["macro_f1"]:.4f}')
+    return test_result
 
 
 if __name__ == '__main__':
-    main()
+    param_dist = {
+        'total_epoch': [1000],
+        'B': [30, 50],
+        'eps': np.linspace(0.4, 0.72, 100).tolist(),
+        'eps_gap': np.linspace(0.02, 0.03, 5).tolist(),
+        'min_cluster_size': range(8, 30, 2)
+    }
+
+    model = MyModel()
+    try:
+        grid_search = RandomizedSearchCV(estimator=model, param_distributions=param_dist, cv=5, scoring=None)
+        grid_search.fit([0, 0, 1, 1, 1], [0, 1, 1, 1, 0])
+    except ValueError as e:
+        print(f"Skipping parameters. {e}")
+
+    print(grid_search.best_params_)
+    print(grid_search.best_estimator_.get_results())
