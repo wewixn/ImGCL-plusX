@@ -364,6 +364,9 @@ class MyModel(BaseEstimator):
         return self
 
     def score(self, X, y=None):
+        return self.scores_['micro_f1']
+
+    def get_results(self):
         return self.scores_
 
 
@@ -430,13 +433,11 @@ if __name__ == '__main__':
     }
 
     model = MyModel()
-    def my_scorer(estimator, X, y):
-        return estimator.score([])['micro_f1']
     try:
-        grid_search = RandomizedSearchCV(estimator=model, param_distributions=param_dist, cv=5, scoring=my_scorer)
+        grid_search = RandomizedSearchCV(estimator=model, param_distributions=param_dist, cv=5, scoring=None)
         grid_search.fit([0, 0, 1, 1, 1], [0, 1, 1, 1, 0])
     except ValueError as e:
         print(f"Skipping parameters. {e}")
 
     print(grid_search.best_params_)
-    print(grid_search.best_score_)
+    print(grid_search.best_estimator_.get_results())
