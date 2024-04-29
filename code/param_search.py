@@ -379,7 +379,6 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
     aug2 = A.Compose([A.EdgeRemoving(pe=0.5), A.FeatureMasking(pf=0.1)])
 
     gconv = GConv(input_dim=dataset.num_features, hidden_dim=256).to(device)
-    gat = GAT(num_features=dataset.num_features, num_hidden=64).to(device)
     encoder_model = Encoder(encoder=gconv, augmentor=(aug1, aug2)).to(device)
     contrast_model = WithinEmbedContrast(loss=L.BarlowTwins()).to(device)
 
@@ -395,7 +394,7 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
     with tqdm(total=total_epoch, desc='(T)') as pbar:
         for epoch in range(1, total_epoch+1):
             loss = train(encoder_model, contrast_model, data_train, optimizer, scaler)
-            if epoch % B == 0 and epoch != total_epoch:
+            if epoch % B == 0 and epoch != total_epoch and epoch > 100:
                 if data_train.x.size(0) <= 0.2 * data.x.size(0) or data_train.x.size(0) >= 1.21 * data.x.size(0):
                     data_train = data.clone()
                 if data_train.edge_index.size(1) >= 1.21 * data.edge_index.size(1):
@@ -432,8 +431,8 @@ if __name__ == '__main__':
 
     model = MyModel()
     try:
-        grid_search = RandomizedSearchCV(estimator=model, param_distributions=param_dist, cv=3, scoring=None)
-        grid_search.fit([0, 0, 1], [0, 1, 1])
+        grid_search = RandomizedSearchCV(estimator=model, param_distributions=param_dist, cv=5, scoring=None)
+        grid_search.fit([0, 0, 1, 1, 1], [0, 1, 1, 1, 0])
     except ValueError as e:
         print(f"Skipping parameters. {e}")
 
