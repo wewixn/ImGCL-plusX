@@ -14,7 +14,6 @@ from scipy.spatial.distance import pdist, squareform
 from imblearn.under_sampling import TomekLinks, NeighbourhoodCleaningRule
 from sklearn.cluster import DBSCAN
 from torch_geometric.utils import subgraph, to_dense_adj, dense_to_sparse
-from torch.nn.parallel import DataParallel
 from torch.cuda.amp import GradScaler, autocast
 
 from tqdm import tqdm
@@ -328,8 +327,6 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
     gconv = GConv(input_dim=dataset.num_features, hidden_dim=32, activation=torch.nn.ReLU, num_layers=2).to(device)
     encoder_model = Encoder(encoder=gconv, augmentor=(aug1, aug2), hidden_dim=32, proj_dim=32).to(device)
     contrast_model = DualBranchContrast(loss=L.InfoNCE(tau=0.2), mode='L2L', intraview_negs=True).to(device)
-    encoder_model = DataParallel(encoder_model)
-    contrast_model = DataParallel(contrast_model)
     optimizer = Adam(encoder_model.parameters(), lr=0.01)
     scaler = GradScaler()
 
