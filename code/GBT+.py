@@ -24,21 +24,6 @@ from torch_geometric.datasets import Amazon, WikiCS, Planetoid
 from pl_bolts.optimizers import LinearWarmupCosineAnnealingLR
 
 
-class GAT(torch.nn.Module):
-    def __init__(self, num_features, num_hidden):
-        super(GAT, self).__init__()
-        self.conv1 = GATConv(num_features, num_hidden, heads=8, concat=True)
-        self.conv2 = GATConv(num_hidden * 8, num_hidden, heads=1, concat=False)
-
-    def forward(self, x, edge_index, edge_weight=None):
-        z = F.dropout(x, p=0.6, training=self.training)
-        z = self.conv1(z, edge_index, edge_weight)
-        z = F.elu(z)
-        z = F.dropout(z, p=0.6, training=self.training)
-        z = self.conv2(z, edge_index, edge_weight)
-        return z
-
-
 class GConv(torch.nn.Module):
     def __init__(self, input_dim, hidden_dim):
         super(GConv, self).__init__()
@@ -79,28 +64,6 @@ def remap_edge_index(edge_index, mask, prev_dim):
     remapped_edge_index = mapping[edge_index]
 
     return remapped_edge_index
-
-
-def pbs_sample(data, pseudo_labels, a, alpha=0.85, pr=0.1, l=0.1):
-    device = data.edge_index.device
-    counts = torch.bincount(pseudo_labels)
-    p_pb = a * counts / data.num_nodes + (1-a) / counts.size(0)
-
-    edge_self_loop, _ = add_self_loops(data.edge_index, num_nodes=data.num_nodes)
-    row, col = edge_self_loop
-    deg = degree(col, data.num_nodes, dtype=data.x.dtype)
-    deg_inv = deg.pow(-1)
-    adj_matrix = to_dense_adj(edge_self_loop, edge_attr=data.edge_attr)[0]
-    node_centrality = alpha * adj_matrix @ deg_inv + torch.ones(data.num_nodes).to(device)
-    nc_max = torch.max(node_centrality)
-    nc_min = torch.min(node_centrality)
-    p_pbs = (nc_max - node_centrality) / (nc_max - nc_min) * p_pb[pseudo_labels]
-    pr = torch.tensor(pr, dtype=torch.float32)
-    p_pbs = torch.maximum(p_pbs, pr)
-
-    samples = torch.multinomial(p_pbs, int(data.num_nodes*l))
-
-    return samples
 
 
 def sim_sample(data, pseudo_labels, sampler=None, encoder_model=None):

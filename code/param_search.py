@@ -24,21 +24,6 @@ from torch_geometric.datasets import Amazon, WikiCS, Planetoid
 from pl_bolts.optimizers import LinearWarmupCosineAnnealingLR
 
 
-class GAT(torch.nn.Module):
-    def __init__(self, num_features, num_hidden):
-        super(GAT, self).__init__()
-        self.conv1 = GATConv(num_features, num_hidden, heads=8, concat=True)
-        self.conv2 = GATConv(num_hidden * 8, num_hidden, heads=1, concat=False)
-
-    def forward(self, x, edge_index, edge_weight=None):
-        z = F.dropout(x, p=0.6, training=self.training)
-        z = self.conv1(z, edge_index, edge_weight)
-        z = F.elu(z)
-        z = F.dropout(z, p=0.6, training=self.training)
-        z = self.conv2(z, edge_index, edge_weight)
-        return z
-
-
 class GConv(torch.nn.Module):
     def __init__(self, input_dim, hidden_dim, dropout=0.5):
         super(GConv, self).__init__()
@@ -304,22 +289,6 @@ def cluster(encoder_model, data, num_clusters=10):
 
     cluster_labels = torch.from_numpy(cluster_labels).to(device)
     return cluster_labels
-
-
-def node_perturbation(nodes_feature, noise_std=0.1):
-    nodes_feature += noise_std * torch.randn_like(nodes_feature) / nodes_feature.size(1)
-    return nodes_feature
-
-
-def edge_perturbation(edge_index, mask=None, disconnect_prob=0.05):
-    if mask is None:
-        mask = torch.ones(edge_index.shape[1], dtype=torch.bool)
-    selected_edges = edge_index[:, mask]
-    disconnect_mask = np.random.rand(selected_edges.shape[1]) > disconnect_prob
-    disconnected_edges = selected_edges[:, disconnect_mask]
-    unchanged_edges = edge_index[:, ~mask]
-    edge_index = np.concatenate([unchanged_edges, disconnected_edges], axis=1)
-    return edge_index
 
 
 def train(encoder_model, contrast_model, data, optimizer, scaler):
