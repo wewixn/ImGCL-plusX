@@ -352,8 +352,8 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
     print(f'(E): Best test F1Mi={test_result["micro_f1"]:.4f}, F1Ma={test_result["macro_f1"]:.4f}')
     if not osp.exists('results'):
         os.makedirs('results')
-    with open(f'results/{B}_{eps}_{eps_gap}_{min_cluster_size}.txt', 'w') as f:
-        f.write(f'(E): Best test F1Mi={test_result["micro_f1"]:.4f}, F1Ma={test_result["macro_f1"]:.4f}')
+    with open(f'results/{B}_{eps}_{eps_gap}_{min_cluster_size}.txt', 'a') as f:
+        f.write(f'(E): Best test F1Mi={test_result["micro_f1"]:.4f}, F1Ma={test_result["macro_f1"]:.4f}\n')
     return test_result
 
 
