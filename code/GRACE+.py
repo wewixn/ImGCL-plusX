@@ -14,7 +14,6 @@ from scipy.spatial.distance import pdist, squareform
 from imblearn.under_sampling import TomekLinks, NeighbourhoodCleaningRule
 from sklearn.cluster import DBSCAN
 from torch_geometric.utils import subgraph, to_dense_adj, dense_to_sparse
-from torch.cuda.amp import GradScaler, autocast
 
 from tqdm import tqdm
 from torch.optim import Adam
@@ -264,16 +263,14 @@ def cluster_with_outlier(encoder_model, data, eps=0.6, eps_gap=0.02, min_cluster
     return pseudo_labels
 
 
-def train(encoder_model, contrast_model, data, optimizer, scaler):
+def train(encoder_model, contrast_model, data, optimizer):
     encoder_model.train()
     optimizer.zero_grad()
-    with autocast():
-        z, z1, z2 = encoder_model(data.x, data.edge_index, data.edge_attr)
-        h1, h2 = [encoder_model.module.project(x) for x in [z1, z2]]
-        loss = contrast_model(h1, h2)
-    scaler.scale(loss).backward()
-    scaler.step(optimizer)
-    scaler.update()
+    z, z1, z2 = encoder_model(data.x, data.edge_index, data.edge_attr)
+    h1, h2 = [encoder_model.project(x) for x in [z1, z2]]
+    loss = contrast_model(h1, h2)
+    loss.backward()
+    optimizer.step()
     return loss.item()
 
 
@@ -327,14 +324,14 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
     gconv = GConv(input_dim=dataset.num_features, hidden_dim=32, activation=torch.nn.ReLU, num_layers=2).to(device)
     encoder_model = Encoder(encoder=gconv, augmentor=(aug1, aug2), hidden_dim=32, proj_dim=32).to(device)
     contrast_model = DualBranchContrast(loss=L.InfoNCE(tau=0.2), mode='L2L', intraview_negs=True).to(device)
+
     optimizer = Adam(encoder_model.parameters(), lr=0.01)
-    scaler = GradScaler()
 
     data_train = data.clone()
     increment = (final_portion - initial_portion) / (np.ceil(total_epoch / B) - 1)
     with tqdm(total=total_epoch, desc='(T)') as pbar:
         for epoch in range(1, total_epoch+1):
-            loss = train(encoder_model, contrast_model, data_train, optimizer, scaler)
+            loss = train(encoder_model, contrast_model, data_train, optimizer)
             if epoch % B == 0 and epoch != total_epoch and epoch > 100:
                 if data_train.x.size(0) <= 0.2 * data.x.size(0) or data_train.x.size(0) >= 1.21 * data.x.size(0):
                     data_train = data.clone()
