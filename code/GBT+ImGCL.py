@@ -5,14 +5,11 @@ import GCL.augmentors as A
 import torch_geometric.transforms as T
 from torch_geometric.utils import add_self_loops, degree, subgraph, to_dense_adj
 
-from imblearn.under_sampling import ClusterCentroids, TomekLinks
-import numpy as np
 from sklearn.cluster import KMeans
 from tqdm import tqdm
 from torch.optim import Adam
 from GCL.eval import get_split, LREvaluator
-from Contrast import WithinEmbedContrast
-# from GCL.models.contrast_model import WithinEmbedContrast
+from GCL.models.contrast_model import WithinEmbedContrast
 from torch_geometric.nn import GCNConv
 from torch_geometric.datasets import DBLP, Amazon
 from pl_bolts.optimizers import LinearWarmupCosineAnnealingLR
