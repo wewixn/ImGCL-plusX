@@ -441,3 +441,9 @@ if __name__ == '__main__':
 
     print(grid_search.best_params_)
     print(grid_search.best_estimator_.get_results())
+    mean_scores = grid_search.cv_results_['mean_test_score']
+    print(f'mean_scores: {mean_scores}')
+    best_index = np.argmax(mean_scores)
+    best_score = mean_scores[best_index]
+    best_params = grid_search.cv_results_['params'][best_index]
+    print(f'Best score: {best_score}, Best params: {best_params}')
