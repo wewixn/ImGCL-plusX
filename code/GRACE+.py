@@ -314,8 +314,8 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
     initial_portion = 0.24
     final_portion = 0.42
     device = torch.device('cuda')
-    path = osp.join(osp.expanduser('.'), 'datasets', 'WikiCS')
-    dataset = WikiCS(path, transform=T.NormalizeFeatures())
+    path = osp.join(osp.expanduser('.'), 'datasets', 'Planetoid')
+    dataset = Planetoid(path, name='pubmed', transform=T.NormalizeFeatures())
     data = dataset[0].to(device)
 
     aug1 = A.Compose([A.EdgeRemoving(pe=0.3), A.FeatureMasking(pf=0.3)])
