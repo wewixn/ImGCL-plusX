@@ -314,8 +314,8 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
     initial_portion = 0.24
     final_portion = 0.42
     device = torch.device('cuda')
-    path = osp.join(osp.expanduser('.'), 'datasets', 'Amazon')
-    dataset = Amazon(path, name='photo', transform=T.NormalizeFeatures())
+    path = osp.join(osp.expanduser('.'), 'datasets', 'WikiCS')
+    dataset = WikiCS(path, transform=T.NormalizeFeatures())
     data = dataset[0].to(device)
 
     aug1 = A.Compose([A.EdgeRemoving(pe=0.3), A.FeatureMasking(pf=0.3)])
@@ -358,11 +358,29 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
 
 
 if __name__ == '__main__':
+    B = 50
+    eps = 0.6
+    eps_gap = 0.02
+    min_cluster_size = 24
+    total_epoch = 1000
+
+    param_search = True
+    if not param_search:
+        num_runs = 5
+        results = []
+        for _ in range(num_runs):
+            results.append(main(total_epoch=total_epoch, B=B, eps=eps, eps_gap=eps_gap, min_cluster_size=min_cluster_size))
+        for i in range(num_runs):
+            print(f'F1Mi={results[i]["micro_f1"]:.4f}, F1Ma={results[i]["macro_f1"]:.4f}')
+        print(f'Average test F1Mi={sum([r["micro_f1"] for r in results]) / num_runs:.4f}, '
+              f'F1Ma={sum([r["macro_f1"] for r in results]) / num_runs:.4f}')
+        exit(0)
+
     param_dist = {
         'total_epoch': [1000],
         'B': [30, 50],
-        'eps': np.linspace(0.4, 0.72, 100).tolist(),
-        'eps_gap': np.linspace(0.02, 0.03, 5).tolist(),
+        'eps': np.linspace(0.2, 0.72, 100).tolist(),
+        'eps_gap': np.linspace(0.01, 0.03, 10).tolist(),
         'min_cluster_size': range(8, 30, 2)
     }
 
@@ -374,10 +392,9 @@ if __name__ == '__main__':
         print(f"Skipping parameters. {e}")
 
     print(grid_search.best_params_)
-    print(grid_search.best_estimator_.get_results())
     mean_scores = grid_search.cv_results_['mean_test_score']
     print(f'mean_scores: {mean_scores}')
-    best_index = np.argmax(mean_scores)
+    best_index = np.nanargmax(mean_scores)
     best_score = mean_scores[best_index]
     best_params = grid_search.cv_results_['params'][best_index]
     print(f'Best score: {best_score}, Best params: {best_params}')
