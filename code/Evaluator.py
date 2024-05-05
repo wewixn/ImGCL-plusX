@@ -28,7 +28,6 @@ class LREvaluator(BaseEvaluator):
         self.test_interval = test_interval
         self.validation_accuracies = []
         self.test_accuracies = []
-        self.validation_macro = []
         self.test_macro = []
 
     def evaluate(self, x: torch.FloatTensor, y: torch.LongTensor, split: dict):
@@ -77,18 +76,15 @@ class LREvaluator(BaseEvaluator):
                         best_epoch = epoch
                         self.validation_accuracies.append(best_val_micro)
                         self.test_accuracies.append(best_test_micro)
-                        self.validation_macro.append(val_micro)
-                        self.test_macro.append(test_micro)
+                        self.test_macro.append(test_macro)
 
                     pbar.set_postfix({'best test F1Mi': best_test_micro, 'F1Ma': best_test_macro})
                     pbar.update(self.test_interval)
         validation_acc_std = np.std(self.validation_accuracies)
-        test_acc_std = np.std(self.test_accuracies)
         validation_acc_mean = np.mean(self.validation_accuracies)
+        test_acc_std = np.std(self.test_accuracies)
         test_acc_mean = np.mean(self.test_accuracies)
-        validation_macro_std = np.std(self.validation_macro)
         test_macro_std = np.std(self.test_macro)
-        validation_macro_mean = np.mean(self.validation_macro)
         test_macro_mean = np.mean(self.test_macro)
 
 
@@ -96,11 +92,9 @@ class LREvaluator(BaseEvaluator):
             'micro_f1': best_test_micro,
             'macro_f1': best_test_macro,
             'validation_acc_std': validation_acc_std,
-            'test_acc_std': test_acc_std,
             'validation_acc_mean': validation_acc_mean,
+            'test_acc_std': test_acc_std,
             'test_acc_mean': test_acc_mean,
-            'validation_macro_std': validation_macro_std,
             'test_macro_std': test_macro_std,
-            'validation_macro_mean': validation_macro_mean,
             'test_macro_mean': test_macro_mean
         }
