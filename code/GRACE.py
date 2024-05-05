@@ -7,7 +7,8 @@ import torch_geometric.transforms as T
 
 from tqdm import tqdm
 from torch.optim import Adam
-from GCL.eval import get_split, LREvaluator
+from GCL.eval import get_split
+from Evaluator import LREvaluator
 from GCL.models import DualBranchContrast
 from torch_geometric.nn import GCNConv
 from torch_geometric.datasets import Planetoid, Amazon, WikiCS
@@ -96,6 +97,8 @@ def main():
 
     test_result = test(encoder_model, data)
     print(f'(E): Best test F1Mi={test_result["micro_f1"]:.4f}, F1Ma={test_result["macro_f1"]:.4f}')
+    print(f'test acc = {test_result["test_acc_mean"]:.4f} +/- {test_result["test_acc_std"]:.4f}, '
+          f'test F1Ma = {test_result["test_macro_mean"]:.4f} +/- {test_result["test_macro_std"]:.4f}')
     return test_result
 
 

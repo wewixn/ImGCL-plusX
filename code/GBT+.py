@@ -17,7 +17,8 @@ from imblearn.under_sampling import TomekLinks, NeighbourhoodCleaningRule, NearM
 import numpy as np
 from tqdm import tqdm
 from torch.optim import Adam
-from GCL.eval import get_split, LREvaluator
+from GCL.eval import get_split
+from Evaluator import LREvaluator
 from GCL.models.contrast_model import WithinEmbedContrast
 from torch_geometric.nn import GCNConv, GATConv
 from torch_geometric.datasets import Amazon, WikiCS, Planetoid
@@ -192,8 +193,9 @@ def over_sample(data, pseudo_labels, portion=0.0):
 def cluster_with_outlier(encoder_model, data, eps=0.6, eps_gap=0.02, min_cluster_size=28):
     device = data.x.device
     z = encoder_model(data.x, data.edge_index, data.edge_attr)
-
     data_array = z.cpu().detach().numpy()
+    data_array = (data_array - data_array.min(axis=0)) / (data_array.max(axis=0) - data_array.min(axis=0))
+
     eps_tight = eps - eps_gap
     eps_loose = eps + eps_gap
     min_cluster_size = min(min_cluster_size, int(data.x.size(0) / 42))
@@ -300,7 +302,7 @@ def edge_perturbation(edge_index, mask=None, disconnect_prob=0.05):
 
 
 def train(encoder_model, contrast_model, data, optimizer, scaler):
-    encoder_model.train()
+    encoder_model.module.train()
     optimizer.zero_grad()
     with autocast():
         _, z1, z2 = encoder_model(data.x, data.edge_index, data.edge_attr)
@@ -312,7 +314,7 @@ def train(encoder_model, contrast_model, data, optimizer, scaler):
 
 
 def test(encoder_model, data):
-    encoder_model.eval()
+    encoder_model.module.eval()
     z, _, _ = encoder_model(data.x, data.edge_index, data.edge_attr)
     split = get_split(num_samples=z.size()[0], train_ratio=0.1, test_ratio=0.8)
     result = LREvaluator()(z, data.y, split)
@@ -321,8 +323,8 @@ def test(encoder_model, data):
 
 def main(total_epoch=1000, B=50, eps=0.5, eps_gap=0.02, min_cluster_size=28, initial_portion=0.24, final_portion=0.42):
     device = torch.device('cuda')
-    path = osp.join(osp.expanduser('.'), 'datasets', 'WikiCS')
-    dataset = WikiCS(path, transform=T.NormalizeFeatures())
+    path = osp.join(osp.expanduser('.'), 'datasets', 'Planetoid')
+    dataset = Planetoid(path, name='cora', transform=T.NormalizeFeatures())
     data = dataset[0].to(device)
 
     aug1 = A.Compose([A.EdgeRemoving(pe=0.5), A.FeatureMasking(pf=0.1)])
@@ -332,8 +334,10 @@ def main(total_epoch=1000, B=50, eps=0.5, eps_gap=0.02, min_cluster_size=28, ini
     encoder_model = Encoder(encoder=gconv, augmentor=(aug1, aug2)).to(device)
     contrast_model = WithinEmbedContrast(loss=L.BarlowTwins()).to(device)
 
+    encoder_model = torch.nn.DataParallel(encoder_model)
+    contrast_model = torch.nn.DataParallel(contrast_model)
     scaler = GradScaler()
-    optimizer = Adam(encoder_model.parameters(), lr=5e-4, weight_decay=1e-5)
+    optimizer = Adam(encoder_model.module.parameters(), lr=5e-4, weight_decay=1e-5)
     scheduler = LinearWarmupCosineAnnealingLR(
         optimizer=optimizer,
         warmup_epochs=100,
@@ -350,12 +354,12 @@ def main(total_epoch=1000, B=50, eps=0.5, eps_gap=0.02, min_cluster_size=28, ini
                 if data_train.edge_index.size(1) >= 1.21 * data.edge_index.size(1):
                     data_train = data.clone()
 
-                pseudo_labels = cluster_with_outlier(encoder_model.encoder, data_train, eps=eps, eps_gap=eps_gap, min_cluster_size=min_cluster_size)
+                pseudo_labels = cluster_with_outlier(encoder_model.module.encoder, data_train, eps=eps, eps_gap=eps_gap, min_cluster_size=min_cluster_size)
 
                 portion = min(final_portion, initial_portion + increment * (epoch // B))
                 data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=portion)
                 undersampler = NeighbourhoodCleaningRule(sampling_strategy='majority')
-                data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, encoder_model.encoder)
+                data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, encoder_model.module.encoder)
 
             scheduler.step()
             pbar.set_postfix({'loss': loss})
@@ -363,6 +367,8 @@ def main(total_epoch=1000, B=50, eps=0.5, eps_gap=0.02, min_cluster_size=28, ini
 
     test_result = test(encoder_model, data)
     print(f'(E): Best test F1Mi={test_result["micro_f1"]:.4f}, F1Ma={test_result["macro_f1"]:.4f}')
+    print(f'test acc = {test_result["test_acc_mean"]:.4f} +/- {test_result["test_acc_std"]:.4f}, '
+          f'test F1Ma = {test_result["test_macro_mean"]:.4f} +/- {test_result["test_macro_std"]:.4f}')
     return test_result
 
 
@@ -370,13 +376,13 @@ if __name__ == '__main__':
     num_runs = 5
     res = []
     total_epoch = 1000
-    # WikiCS
+    # WikiCS 无归一化
     # B = 50
     # eps = 0.5357575757575758
     # eps_gap = 5
     # min_cluster_size = 28
 
-    # cora
+    # cora 无归一化
     # B = 30
     # eps = 76/3
     # eps_gap = 5

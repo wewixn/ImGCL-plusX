@@ -17,7 +17,8 @@ from imblearn.under_sampling import TomekLinks, NeighbourhoodCleaningRule
 import numpy as np
 from tqdm import tqdm
 from torch.optim import Adam
-from GCL.eval import get_split, LREvaluator
+from GCL.eval import get_split
+from Evaluator import LREvaluator
 from GCL.models.contrast_model import WithinEmbedContrast
 from torch_geometric.nn import GCNConv, GATConv
 from torch_geometric.datasets import Amazon, WikiCS, Planetoid
@@ -197,8 +198,9 @@ def over_sample(data, pseudo_labels, portion=0.0):
 def cluster_with_outlier(encoder_model, data, eps=0.6, eps_gap=0.02, min_cluster_size=24):
     device = data.x.device
     z = encoder_model(data.x, data.edge_index, data.edge_attr)
-
     data_array = z.cpu().detach().numpy()
+    data_array = (data_array - data_array.min(axis=0)) / (data_array.max(axis=0) - data_array.min(axis=0))
+
     eps_tight = eps - eps_gap
     eps_loose = eps + eps_gap
     min_cluster_size = min(min_cluster_size, int(data.x.size(0) / 42))
@@ -383,12 +385,10 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
             pbar.update()
 
     test_result = test(encoder_model, data)
-    print(f'params: total_epoch={total_epoch}, B={B}, portion={portion}, eps={eps}, eps_gap={eps_gap}, min_cluster_size={min_cluster_size}')
+    print(f'params: total_epoch={total_epoch}, B={B}, eps={eps}, eps_gap={eps_gap}, min_cluster_size={min_cluster_size}')
     print(f'(E): Best test F1Mi={test_result["micro_f1"]:.4f}, F1Ma={test_result["macro_f1"]:.4f}')
-    if not osp.exists('results'):
-        os.makedirs('results')
-    with open(f'results/{B}_{eps}_{eps_gap}_{min_cluster_size}.txt', 'a') as f:
-        f.write(f'(E): Best test F1Mi={test_result["micro_f1"]:.4f}, F1Ma={test_result["macro_f1"]:.4f}\n')
+    print(f'test acc = {test_result["test_acc_mean"]:.4f} +/- {test_result["test_acc_std"]:.4f}, '
+          f'test F1Ma = {test_result["test_macro_mean"]:.4f} +/- {test_result["test_macro_std"]:.4f}')
     return test_result
 
 
@@ -396,8 +396,8 @@ if __name__ == '__main__':
     param_dist = {
         'total_epoch': [1000],
         'B': [30, 50],
-        'eps': np.linspace(0.4, 0.72, 100).tolist(),
-        'eps_gap': np.linspace(0.02, 0.03, 5).tolist(),
+        'eps': np.linspace(0.24, 0.72, 100).tolist(),
+        'eps_gap': np.linspace(0.02, 0.1, 10).tolist(),
         'min_cluster_size': range(8, 30, 2)
     }
 
@@ -409,7 +409,6 @@ if __name__ == '__main__':
         print(f"Skipping parameters. {e}")
 
     print(grid_search.best_params_)
-    print(grid_search.best_estimator_.get_results())
     mean_scores = grid_search.cv_results_['mean_test_score']
     print(f'mean_scores: {mean_scores}')
     best_index = np.argmax(mean_scores)
