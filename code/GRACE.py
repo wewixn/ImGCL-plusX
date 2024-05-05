@@ -54,19 +54,19 @@ class Encoder(torch.nn.Module):
 
 
 def train(encoder_model, contrast_model, data, optimizer):
-    encoder_model.train()
+    encoder_model.module.train()
     optimizer.zero_grad()
-    z, z1, z2 = encoder_model(data.x, data.edge_index, data.edge_attr)
-    h1, h2 = [encoder_model.project(x) for x in [z1, z2]]
-    loss = contrast_model(h1, h2)
+    z, z1, z2 = encoder_model.module(data.x, data.edge_index, data.edge_attr)
+    h1, h2 = [encoder_model.module.project(x) for x in [z1, z2]]
+    loss = contrast_model.module(h1, h2)
     loss.backward()
     optimizer.step()
     return loss.item()
 
 
 def test(encoder_model, data):
-    encoder_model.eval()
-    z, _, _ = encoder_model(data.x, data.edge_index, data.edge_attr)
+    encoder_model.module.eval()
+    z, _, _ = encoder_model.module(data.x, data.edge_index, data.edge_attr)
     split = get_split(num_samples=z.size()[0], train_ratio=0.1, test_ratio=0.8)
     result = LREvaluator()(z, data.y, split)
     return result
@@ -84,8 +84,9 @@ def main():
     gconv = GConv(input_dim=dataset.num_features, hidden_dim=32, activation=torch.nn.ReLU, num_layers=2).to(device)
     encoder_model = Encoder(encoder=gconv, augmentor=(aug1, aug2), hidden_dim=32, proj_dim=32).to(device)
     contrast_model = DualBranchContrast(loss=L.InfoNCE(tau=0.2), mode='L2L', intraview_negs=True).to(device)
-
-    optimizer = Adam(encoder_model.parameters(), lr=0.01)
+    encoder_model = torch.nn.DataParallel(encoder_model)
+    contrast_model = torch.nn.DataParallel(contrast_model)
+    optimizer = Adam(encoder_model.module.parameters(), lr=0.01)
 
     with tqdm(total=1000, desc='(T)') as pbar:
         for epoch in range(1, 1001):

@@ -264,19 +264,19 @@ def cluster_with_outlier(encoder_model, data, eps=0.6, eps_gap=0.02, min_cluster
 
 
 def train(encoder_model, contrast_model, data, optimizer):
-    encoder_model.train()
+    encoder_model.module.train()
     optimizer.zero_grad()
-    z, z1, z2 = encoder_model(data.x, data.edge_index, data.edge_attr)
-    h1, h2 = [encoder_model.project(x) for x in [z1, z2]]
-    loss = contrast_model(h1, h2)
+    z, z1, z2 = encoder_model.module(data.x, data.edge_index, data.edge_attr)
+    h1, h2 = [encoder_model.module.project(x) for x in [z1, z2]]
+    loss = contrast_model.module(h1, h2)
     loss.backward()
     optimizer.step()
     return loss.item()
 
 
 def test(encoder_model, data):
-    encoder_model.eval()
-    z, _, _ = encoder_model(data.x, data.edge_index, data.edge_attr)
+    encoder_model.module.eval()
+    z, _, _ = encoder_model.module(data.x, data.edge_index, data.edge_attr)
     split = get_split(num_samples=z.size()[0], train_ratio=0.1, test_ratio=0.8)
     result = LREvaluator()(z, data.y, split)
     return result
@@ -324,8 +324,10 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
     gconv = GConv(input_dim=dataset.num_features, hidden_dim=32, activation=torch.nn.ReLU, num_layers=2).to(device)
     encoder_model = Encoder(encoder=gconv, augmentor=(aug1, aug2), hidden_dim=32, proj_dim=32).to(device)
     contrast_model = DualBranchContrast(loss=L.InfoNCE(tau=0.2), mode='L2L', intraview_negs=True).to(device)
+    encoder_model = torch.nn.DataParallel(encoder_model)
+    contrast_model = torch.nn.DataParallel(contrast_model)
 
-    optimizer = Adam(encoder_model.parameters(), lr=0.01)
+    optimizer = Adam(encoder_model.module.parameters(), lr=0.01)
 
     data_train = data.clone()
     increment = (final_portion - initial_portion) / (np.ceil(total_epoch / B) - 1)
@@ -337,12 +339,12 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
                     data_train = data.clone()
                 if data_train.edge_index.size(1) >= 1.21 * data.edge_index.size(1):
                     data_train = data.clone()
-                pseudo_labels = cluster_with_outlier(encoder_model.encoder, data_train, eps=eps, eps_gap=eps_gap, min_cluster_size=min_cluster_size)
+                pseudo_labels = cluster_with_outlier(encoder_model.module.encoder, data_train, eps=eps, eps_gap=eps_gap, min_cluster_size=min_cluster_size)
 
                 portion = min(final_portion, initial_portion + increment * (epoch // B))
                 data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=portion)
                 undersampler = NeighbourhoodCleaningRule(sampling_strategy='majority')
-                data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, encoder_model.encoder)
+                data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, encoder_model.module.encoder)
 
             pbar.set_postfix({'loss': loss})
             pbar.update()
