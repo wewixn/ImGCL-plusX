@@ -322,8 +322,8 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
     initial_portion = 0.24
     final_portion = 0.42
     device = torch.device('cuda')
-    path = osp.join(osp.expanduser('.'), 'datasets', 'WikiCS')
-    dataset = WikiCS(path, transform=T.NormalizeFeatures())
+    path = osp.join(osp.expanduser('.'), 'datasets', 'Planetoid')
+    dataset = Planetoid(path, name='', transform=T.NormalizeFeatures())
     data = dataset[0].to(device)
 
     aug1 = A.Compose([A.EdgeRemoving(pe=0.3), A.FeatureMasking(pf=0.3)])
@@ -342,7 +342,7 @@ def main(total_epoch=1000, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
     with tqdm(total=total_epoch, desc='(T)') as pbar:
         for epoch in range(1, total_epoch+1):
             loss = train(encoder_model, contrast_model, data_train, optimizer)
-            if epoch % B == 0 and epoch != total_epoch and epoch > 1:
+            if epoch % B == 0 and epoch != total_epoch and epoch > 100:
                 if data_train.x.size(0) <= 0.2 * data.x.size(0) or data_train.x.size(0) >= 1.21 * data.x.size(0):
                     data_train = data.clone()
                 if data_train.edge_index.size(1) >= 1.21 * data.edge_index.size(1):
@@ -385,8 +385,8 @@ if __name__ == '__main__':
         exit(0)
 
     param_dist = {
-        'total_epoch': [10],
-        'B': [3, 5],
+        'total_epoch': [1000],
+        'B': [30, 50],
         'eps': np.linspace(0.24, 0.72, 100).tolist(),
         'eps_gap': np.linspace(0.01, 0.1, 10).tolist(),
         'min_cluster_size': range(8, 30, 2)
