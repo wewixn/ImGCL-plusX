@@ -1,0 +1,20 @@
+{
+    "learning_rate": 0.0001,
+    "num_hidden": 256,
+    "num_proj_hidden": 256,
+    "activation": "rrelu",
+    "drop_edge_rate_1": 0.3,
+    "drop_edge_rate_2": 0.2,
+    "drop_feature_rate_1": 0.3,
+    "drop_feature_rate_2": 0.4,
+    "tau": 0.2,
+    "num_epochs": 1000,
+    "epoch_start": 400,
+    "weight_init": 0.05,
+    "B": 50,
+    "eps": 0.336969696969697,
+    "eps_gap": 0.06,
+    "min_cluster_size": 26,
+    "initial_portion": 0.24,
+    "final_portion": 0.42
+}
