@@ -1,8 +1,12 @@
-本项目使用 [PyGCL](https://github.com/PyGCL/PyGCL)，论文链接[our paper](https://arxiv.org/abs/2109.01116)，
-对[ImGCL](https://arxiv.org/pdf/2205.11332.pdf)进行了复现，后续将加入其他的小改进。
+本项目使用 [PyGCL](https://github.com/PyGCL/PyGCL)，论文链接[An Empirical Study of Graph Contrastive Learning](https://arxiv.org/abs/2109.01116)，
+对[ImGCL](https://arxiv.org/pdf/2205.11332.pdf)进行了复现，
+对[ProGCL](https://github.com/junxia97/ProGCL/tree/main)与[COSTA](https://github.com/yifeiacc/COSTA/tree/main)进行了复现与加入本文方法。
 
 
 ## Version Infomation
+以下是code/文件夹使用的环境信息，即参考[PyGCL examples](https://github.com/PyGCL/PyGCL/tree/main/examples)的GBT与GRACE实现与本文方法的改进，
+ProGCL与COSTA的环境需另行配置。
+
 可以使用以下命令安装需要的包。其中torch、torchvision、dgl建议手动安装。torch-cluster、torch-scatter、torch-sparse、torch-spline-conv需要手动安装，建议在[torch_geometric-whl](https://pytorch-geometric.com/whl/)网站获取whl文件，再使用pip安装，以匹配各个包的版本。torch与torchvision也可以在[torch-whl](https://download.pytorch.org/whl/)网站查找符合的版本。
 
 ```
