@@ -1,4 +1,4 @@
-
+import numpy as np
 import wandb
 from model.encoder import GCNEncoder
 from model.base import BaseGSSLRunner
@@ -102,6 +102,9 @@ class Runner(BaseGSSLRunner):
         eps = self.config.get("eps", 0.336969696969697)
         eps_gap = self.config.get("eps_gap", 0.06)
         min_cluster_size = self.config.get("min_cluster_size", 26)
+        initial_portion = self.config.get("initial_portion", 0.12)
+        final_portion = self.config.get("final_portion", 0.42)
+        increment = (final_portion - initial_portion) / (np.ceil(self.config['num_epochs'] / B) - 1)
         data_train = self.data.clone()
 
         with tqdm(total=self.config['num_epochs'], desc='(T)') as pbar:
@@ -124,7 +127,11 @@ class Runner(BaseGSSLRunner):
                 loss.backward()
                 optimizer.step()
 
-                if epoch % B == 0 and epoch != self.config["num_epochs"]:
+                if epoch % B == 0 and epoch != self.config["num_epochs"] and epoch > 100:
+                    if data_train.x.size(0) <= 0.2 * self.data.x.size(0) or data_train.x.size(0) >= 1.21 * self.data.x.size(0):
+                        data_train = self.data.clone()
+                    if data_train.edge_index.size(1) >= 1.21 * self.data.edge_index.size(1):
+                        data_train = self.data.clone()
                     pseudo_labels = cluster_with_outlier(z, data_train, eps=eps, eps_gap=eps_gap, min_cluster_size=min_cluster_size)
                     portion = min(final_portion, initial_portion + increment * (epoch // B))
                     data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=portion)
