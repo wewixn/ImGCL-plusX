@@ -147,14 +147,17 @@ def over_sample(data, pseudo_labels, portion=0.0):
 
 def cluster_with_outlier(embedding, data, eps=0.6, eps_gap=0.02, min_cluster_size=24):
     device = data.x.device
-    data_array = embedding.cpu().detach().numpy()
-    max_values = data_array.max(axis=0)
-    min_values = data_array.min(axis=0)
+    data_array = embedding.detach()
+    max_values, _ = torch.max(data_array, dim=0)
+    min_values, _ = torch.min(data_array, dim=0)
     equal_indices = max_values == min_values
     data_array[:, equal_indices] = 0
-    not_equal_indices = np.logical_not(equal_indices)
+    not_equal_indices = torch.logical_not(equal_indices)
     data_array[:, not_equal_indices] = (data_array[:, not_equal_indices] - min_values[not_equal_indices]) / (
                 max_values[not_equal_indices] - min_values[not_equal_indices])
+    data_array = data_array.cpu().numpy()
+    print('euclidean : ', np.linalg.norm(data_array[0] - data_array[1]))
+
 
     eps_tight = eps - eps_gap
     eps_loose = eps + eps_gap
