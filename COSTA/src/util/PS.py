@@ -32,10 +32,6 @@ def sim_sample(data, pseudo_labels, sampler=None, encoder_model=None):
     if sampler is None:
         sampler = TomekLinks()
 
-    print("data: ", data_clone)
-    print("data4sample: ", data4sample.shape)
-    print("pseudo_labels: ", pseudo_labels.shape)
-
     _, pseudo_labels = sampler.fit_resample(data4sample, pseudo_labels.cpu().numpy())
     pseudo_labels = torch.from_numpy(pseudo_labels).to(device=device)
     sample_mask = torch.from_numpy(sampler.sample_indices_).to(device=device)

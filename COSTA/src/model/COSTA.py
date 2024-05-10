@@ -130,8 +130,10 @@ class Runner(BaseGSSLRunner):
                 if epoch % B == 0 and epoch != self.config["num_epochs"] and epoch > 100:
                     if data_train.x.size(0) <= 0.2 * self.data.x.size(0) or data_train.x.size(0) >= 1.21 * self.data.x.size(0):
                         data_train = self.data.clone()
+                        z = self.model.encoder(data_train.x, data_train.edge_index)
                     if data_train.edge_index.size(1) >= 1.21 * self.data.edge_index.size(1):
                         data_train = self.data.clone()
+                        z = self.model.encoder(data_train.x, data_train.edge_index)
                     pseudo_labels = cluster_with_outlier(z, data_train, eps=eps, eps_gap=eps_gap, min_cluster_size=min_cluster_size)
                     portion = min(final_portion, initial_portion + increment * (epoch // B))
                     data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=portion)
