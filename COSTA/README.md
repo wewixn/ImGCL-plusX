@@ -5,13 +5,15 @@ pip install torch==1.11.0+cu113 -f https://download.pytorch.org/whl/torch/
 pip install dgl-cu113==0.8.2.post1 -f https://data.dgl.ai/wheels/repo.html
 pip install torchvision==0.12.0+cu113  -f https://download.pytorch.org/whl/torchvision/
 pip install torchaudio==0.11.0+cu113  -f https://download.pytorch.org/whl/torchaudio/
-pip install -r requirements.txt
-pip install torch-cluster==1.6.3 torch-scatter==2.1.2 torch-sparse==0.6.14 torch-spline-conv==1.2.2 -f https://pytorch-geometric.com/whl/torch-1.11.0%2Bcu113.html
 ```
 
-同时使用conda或者apt-get获取cuda toolkit 11.0
+同时使用conda或者apt-get获取cuda toolkit 11.3，
+并使用其安装torch-cluster、torch-scatter、torch-sparse、torch-spline-conv。
+手动安装上述特定版本的库后，再安装其余版本宽松的库。
 ```
-apt-get install -y cuda-toolkit-11-0
+apt-get install -y cuda-toolkit-11-3
+pip install torch-cluster==1.6.3 torch-scatter==2.1.2 torch-sparse==0.6.14 torch-spline-conv==1.2.2 -f https://pytorch-geometric.com/whl/torch-1.11.0%2Bcu113.html
+pip install -r requirements.txt
 ```
 对本文加入的PSGCL方法，还需要安装imblearn库。
 ```

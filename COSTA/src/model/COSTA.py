@@ -73,8 +73,6 @@ class Runner(BaseGSSLRunner):
         super().__init__(conf, **kwargs)
     
     def load_dataset(self):
-        print(self.config)
-
         self.dataset = get_dataset(self.config['data_dir'], self.config['dataset'])
     # dataset = Planetoid(data_dir, name=args.dataset, transform=T.NormalizeFeatures())
         self.data = self.dataset[0].to(self.device)
