@@ -159,6 +159,8 @@ def cluster_with_outlier(encoder_model, data, eps=0.6, eps_gap=0.02, min_cluster
                 max_values[not_equal_indices] - min_values[not_equal_indices])
     data_array = data_array.cpu().numpy()
 
+    print(np.linalg.norm(data_array[0] - data_array[1]))
+
     eps_tight = eps - eps_gap
     eps_loose = eps + eps_gap
     min_cluster_size = min(min_cluster_size, int(data.x.size(0) / 42))
