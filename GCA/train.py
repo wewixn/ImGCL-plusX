@@ -149,7 +149,7 @@ def main(B, eps, eps_gap, min_cluster_size):
     data_test = data_train.clone()
 
     for epoch in range(1, param['num_epochs'] + 1):
-        loss = train(model, optimizer, drop_weights, data, feature_weights)
+        loss = train(model, optimizer, drop_weights, data_train, feature_weights)
         if 'train' in log and epoch % 100 == 0:
             print(f'(T) | Epoch={epoch:03d}, loss={loss:.4f}')
 
@@ -164,7 +164,6 @@ def main(B, eps, eps_gap, min_cluster_size):
             data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=portion)
             undersampler = NeighbourhoodCleaningRule(sampling_strategy='majority')
             data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, model)
-            print('data:', data_train)
             if param['drop_scheme'] == 'degree':
                 drop_weights = degree_drop_weights(data_train.edge_index).to(device)
             elif param['drop_scheme'] == 'pr':
@@ -181,9 +180,11 @@ def main(B, eps, eps_gap, min_cluster_size):
                 print(f'(E) | Epoch={epoch:04d}, avg_acc = {acc}')
 
     acc = test(model, data, dataset, split, final=True)
+    print(f'params: B={B}, eps={eps}, eps_gap={eps_gap}, min_cluster_size={min_cluster_size}')
 
     if 'final' in log:
         print(f'{acc}')
+    return acc
 
 
 from sklearn.model_selection import RandomizedSearchCV
@@ -256,7 +257,7 @@ if __name__ == '__main__':
         args.device = 'cuda'
     param_dist = {
         'B': [30, 50],
-        'eps': np.linspace(0.42, 2, 100).tolist(),
+        'eps': np.linspace(0.42, 2, 200).tolist(),
         'eps_gap': np.linspace(0.24, 0.42, 20).tolist(),
         'min_cluster_size': range(8, 30, 2)
     }
