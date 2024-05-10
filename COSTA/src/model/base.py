@@ -9,8 +9,10 @@ class BaseGSSLRunner(object):
         if torch.cuda.is_available() and self.config["gpu_id"] >= 0:
             self.device = torch.device('cuda')
             torch.cuda.set_device(self.config["gpu_id"])
+            print('Using GPU: {}'.format(self.config["gpu_id"]))
         else:
             self.device = 'cpu'
+            print('Using CPU')
         
 
     def initializing_log(self):
