@@ -8,5 +8,11 @@
     "drop_feature_rate_1": 0.1,
     "drop_feature_rate_2": 0.1,
     "tau": 0.3,
-    "num_epochs": 2000
+    "num_epochs": 1200,
+    "B": 50,
+    "eps": 0.336969696969697,
+    "eps_gap": 0.06,
+    "min_cluster_size": 26,
+    "initial_portion": 0.24,
+    "final_portion": 0.42
 }
