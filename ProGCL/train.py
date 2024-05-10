@@ -23,27 +23,26 @@ LOG_FORMAT = "%(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 logging.basicConfig(filename='Accuracy.txt',level=logging.DEBUG, format=LOG_FORMAT, datefmt=DATE_FORMAT)
 
-def train(epoch, bmm_model):
+def train(epoch, bmm_model, data_train, model, optimizer, feature_weights, drop_weights):
     model.train()
     optimizer.zero_grad()
 
     def drop_edge(idx: int):
-        global drop_weights
         if param['drop_scheme'] == 'uniform':
-            return dropout_adj(data.edge_index, p=param[f'drop_edge_rate_{idx}'])[0]
+            return dropout_adj(data_train.edge_index, p=param[f'drop_edge_rate_{idx}'])[0]
         elif param['drop_scheme'] in ['degree', 'evc', 'pr']:
-            return drop_edge_weighted(data.edge_index, drop_weights, p=param[f'drop_edge_rate_{idx}'], threshold=0.7)
+            return drop_edge_weighted(data_train.edge_index, drop_weights, p=param[f'drop_edge_rate_{idx}'], threshold=0.7)
         else:
             raise Exception(f'undefined drop scheme: {param["drop_scheme"]}')
     edge_index_1 = drop_edge(1)
     edge_index_2 = drop_edge(2)
 
-    x_1 = drop_feature(data.x, param['drop_feature_rate_1'])
-    x_2 = drop_feature(data.x, param['drop_feature_rate_2'])
+    x_1 = drop_feature(data_train.x, param['drop_feature_rate_1'])
+    x_2 = drop_feature(data_train.x, param['drop_feature_rate_2'])
 
     if param['drop_scheme'] in ['pr', 'degree', 'evc']:
-        x_1 = drop_feature_weighted_2(data.x, feature_weights, param['drop_feature_rate_1'])
-        x_2 = drop_feature_weighted_2(data.x, feature_weights, param['drop_feature_rate_2'])
+        x_1 = drop_feature_weighted_2(data_train.x, feature_weights, param['drop_feature_rate_1'])
+        x_2 = drop_feature_weighted_2(data_train.x, feature_weights, param['drop_feature_rate_2'])
 
     z1 = model(x_1, edge_index_1)
     z2 = model(x_2, edge_index_2)
@@ -52,9 +51,9 @@ def train(epoch, bmm_model):
     optimizer.step()
     return loss.item()
 
-def test(final=False):
+def test(model, data_test, dataset, split, final=False):
     model.eval()
-    z = model(data.x, data.edge_index)
+    z = model(data_test.x, data_test.edge_index)
     nclass = dataset[0].y.max().item() + 1
     evaluator = MulticlassEvaluator(n_clusters=nclass, random_state=0, n_jobs=8)
     if args.dataset == 'WikiCS':
@@ -68,56 +67,7 @@ def test(final=False):
     return acc
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--device', type=str, default='cuda:0')
-    parser.add_argument('--dataset', type=str, default='Amazon-Computers')
-    parser.add_argument('--param', type=str, default='local:amazon_computers.json')
-    parser.add_argument('--seed', type=int, default=39788)
-    parser.add_argument('--verbose', type=str, default='train,eval,final')
-    parser.add_argument('--save_split', type=str, nargs='?')
-    parser.add_argument('--load_split', type=str, nargs='?')
-    parser.add_argument('--epoch_start', type=int, default=400)
-    parser.add_argument('--mode', type=str, default='weight')
-    parser.add_argument('--sel_num', type=int, default=1000)
-    parser.add_argument('--weight_init', type=float, default=0.05)
-    parser.add_argument('--iters', type=int, default=10)
-    default_param = {
-        'learning_rate': 0.01,
-        'num_hidden': 256,
-        'num_proj_hidden': 32,
-        'activation': 'prelu',
-        'base_model': 'GCNConv',
-        'num_layers': 2,
-        'drop_edge_rate_1': 0.3,
-        'drop_edge_rate_2': 0.4,
-        'drop_feature_rate_1': 0.1,
-        'drop_feature_rate_2': 0.0,
-        'tau': 0.4,
-        'num_epochs': 3000,
-        'weight_decay': 1e-5,
-        'drop_scheme': 'evc',
-    }
-
-    # add hyper-parameters into parser
-    param_keys = default_param.keys()
-    for key in param_keys:
-        parser.add_argument(f'--{key}', type=type(default_param[key]), nargs='?')
-    args = parser.parse_args()
-
-    # parse param
-    sp = SimpleParam(default=default_param)
-    param = sp(source=args.param, preprocess='nni')
-
-    # merge cli arguments and parsed param
-    for key in param_keys:
-        if getattr(args, key) is not None:
-            param[key] = getattr(args, key)
-
-    use_nni = args.param == 'nni'
-    if use_nni and args.device != 'cpu':
-        args.device = 'cuda'
-
+def main(B, eps, eps_gap, min_cluster_size):
     torch_seed = args.seed
     torch.manual_seed(torch_seed)
     random.seed(12345)
@@ -182,45 +132,149 @@ if __name__ == '__main__':
     weights_init = torch.tensor([1-args.weight_init, args.weight_init], dtype=torch.float64).to(device)
     bmm_model = BetaMixture1D(args.iters, alphas_init, betas_init, weights_init)
 
-    B = param.get("B", 30)
-    eps = param.get("eps", 0.336969696969697)
-    eps_gap = param.get("eps_gap", 0.06)
-    min_cluster_size = param.get("min_cluster_size", 26)
+    # B = param.get("B", 30)
+    # eps = param.get("eps", 0.336969696969697)
+    # eps_gap = param.get("eps_gap", 0.06)
+    # min_cluster_size = param.get("min_cluster_size", 26)
     initial_portion = param.get("initial_portion", 0.24)
     final_portion = param.get("final_portion", 0.42)
     increment = (final_portion - initial_portion) / (np.ceil(param['num_epochs'] / B) - 1)
-
     data_train = data.clone()
+    data_test = data_train.clone()
 
     for epoch in range(1, param['num_epochs'] + 1):
-        loss = train(epoch, bmm_model)
-        if 'train' in log:
+        loss = train(epoch, bmm_model, data_train, model, optimizer, feature_weights, drop_weights)
+        if 'train' in log and epoch % 100 == 0:
             print(f'(T) | Epoch={epoch:03d}, loss={loss:.4f}')
 
-        if epoch % B == 0 and epoch != param['num_epochs']:
+        if epoch % B == 0 and epoch != param['num_epochs'] and epoch > 100:
+            if data_train.x.size(0) <= 0.2 * data_test.x.size(0) or data_train.x.size(0) >= 1.21 * data_test.x.size(0):
+                data_train = data_test.clone()
+            if data_train.edge_index.size(1) >= 1.21 * data_test.edge_index.size(1):
+                data_train = data_test.clone()
             pseudo_labels = cluster_with_outlier(model, data_train, eps=eps, eps_gap=eps_gap, min_cluster_size=min_cluster_size)
             portion = min(final_portion, initial_portion + increment * (epoch // B))
             data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=portion)
             undersampler = NeighbourhoodCleaningRule(sampling_strategy='majority')
             data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, model)
-        if param['drop_scheme'] == 'degree':
-            drop_weights = degree_drop_weights(data.edge_index).to(device)
-        elif param['drop_scheme'] == 'pr':
-            drop_weights = pr_drop_weights(data.edge_index, aggr='sink', k=200).to(device)
-        elif param['drop_scheme'] == 'evc':
-            drop_weights = evc_drop_weights(data).to(device)
-        else:
-            drop_weights = None
+            print('data:', data_train)
+            if param['drop_scheme'] == 'degree':
+                drop_weights = degree_drop_weights(data_train.edge_index).to(device)
+            elif param['drop_scheme'] == 'pr':
+                drop_weights = pr_drop_weights(data_train.edge_index, aggr='sink', k=200).to(device)
+            elif param['drop_scheme'] == 'evc':
+                drop_weights = evc_drop_weights(data_train).to(device)
+            else:
+                drop_weights = None
 
         if epoch % 100 == 0:
-            acc = test()
+            acc = test(model, data_test, dataset, split)
             logging.info('\t%.4f'%(acc))
             if 'eval' in log:
                 print(f'(E) | Epoch={epoch:04d}, avg_acc = {acc}')
 
-    acc = test(final=True)
+    acc = test(model, data_test, dataset, split, final=True)
     logging.info('Final:')
     logging.info('\t%.4f'%(acc))
+    print(f'params: B={B}, eps={eps}, eps_gap={eps_gap}, min_cluster_size={min_cluster_size}')
 
     if 'final' in log:
         print(f'{acc}')
+    return acc
+
+
+from sklearn.model_selection import RandomizedSearchCV
+from sklearn.base import BaseEstimator
+
+class MyModel(BaseEstimator):
+    def __init__(self, B=50, eps=0.6, eps_gap=0.02, min_cluster_size=24):
+        self.B = B
+        self.eps = eps
+        self.eps_gap = eps_gap
+        self.min_cluster_size = min_cluster_size
+        self.scores_ = 0
+
+    def fit(self, X, y=None):
+        try:
+            self.scores_ = main(self.B, self.eps, self.eps_gap, self.min_cluster_size)
+        except ValueError as e:
+            self.scores_ = 0
+            print(f"Skipping parameters. {e}")
+            raise
+        return self
+
+    def score(self, X, y=None):
+        return self.scores_
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--device', type=str, default='cuda:0')
+    parser.add_argument('--dataset', type=str, default='Amazon-Computers')
+    parser.add_argument('--param', type=str, default='local:amazon_computers.json')
+    parser.add_argument('--seed', type=int, default=39788)
+    parser.add_argument('--verbose', type=str, default='train,eval,final')
+    parser.add_argument('--save_split', type=str, nargs='?')
+    parser.add_argument('--load_split', type=str, nargs='?')
+    parser.add_argument('--epoch_start', type=int, default=400)
+    parser.add_argument('--mode', type=str, default='weight')
+    parser.add_argument('--sel_num', type=int, default=1000)
+    parser.add_argument('--weight_init', type=float, default=0.05)
+    parser.add_argument('--iters', type=int, default=10)
+    default_param = {
+        'learning_rate': 0.01,
+        'num_hidden': 256,
+        'num_proj_hidden': 32,
+        'activation': 'prelu',
+        'base_model': 'GCNConv',
+        'num_layers': 2,
+        'drop_edge_rate_1': 0.3,
+        'drop_edge_rate_2': 0.4,
+        'drop_feature_rate_1': 0.1,
+        'drop_feature_rate_2': 0.0,
+        'tau': 0.4,
+        'num_epochs': 3000,
+        'weight_decay': 1e-5,
+        'drop_scheme': 'evc',
+    }
+
+    # add hyper-parameters into parser
+    param_keys = default_param.keys()
+    for key in param_keys:
+        parser.add_argument(f'--{key}', type=type(default_param[key]), nargs='?')
+    args = parser.parse_args()
+
+    # parse param
+    sp = SimpleParam(default=default_param)
+    param = sp(source=args.param, preprocess='nni')
+
+    # merge cli arguments and parsed param
+    for key in param_keys:
+        if getattr(args, key) is not None:
+            param[key] = getattr(args, key)
+
+    use_nni = args.param == 'nni'
+    if use_nni and args.device != 'cpu':
+        args.device = 'cuda'
+
+    param_dist = {
+        'B': [30, 50],
+        'eps': np.linspace(0.24, 0.64, 100).tolist(),
+        'eps_gap': np.linspace(0.01, 0.16, 20).tolist(),
+        'min_cluster_size': range(8, 30, 2)
+    }
+
+    model = MyModel()
+    try:
+        grid_search = RandomizedSearchCV(estimator=model, param_distributions=param_dist, cv=3, scoring=None)
+        grid_search.fit([0, 0, 1, 1, 1], [0, 1, 1, 1, 0])
+    except ValueError as e:
+        print(f"Skipping parameters. {e}")
+
+    print(grid_search.best_params_)
+    mean_scores = grid_search.cv_results_['mean_test_score']
+    print(f'mean_scores: {mean_scores}')
+    best_index = np.nanargmax(mean_scores)
+    best_score = mean_scores[best_index]
+    best_params = grid_search.cv_results_['params'][best_index]
+    print(f'Best score: {best_score}, Best params: {best_params}')

@@ -137,6 +137,7 @@ class Runner(BaseGSSLRunner):
                     data_train, pseudo_labels = over_sample(data_train, pseudo_labels, portion=portion)
                     undersampler = NeighbourhoodCleaningRule(sampling_strategy='majority')
                     data_train, pseudo_labels = sim_sample(data_train, pseudo_labels, undersampler, self.model.encoder)
+                    print("data size: ", data_train)
 
                 wandb.log({'loss': loss.item()})
                 pbar.set_postfix({'loss': loss.item()})

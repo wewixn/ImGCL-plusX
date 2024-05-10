@@ -83,19 +83,23 @@ class GRACE(torch.nn.Module):
         between_sim = self.sim(z1, z2)
         N = between_sim.size(0)
         mask = torch.ones((N,N),dtype=bool).to(z1.device)
-        mask[np.eye(N,dtype=bool)] = False 
-        if epoch == args.epoch_start and fit:
+        mask[np.eye(N,dtype=bool)] = False
+
+        def compute_B(bmm_model, between_sim, mask, N):
             global B
             N_sel = 100
-            index_fit = np.random.randint(0, N, N_sel)          
+            index_fit = np.random.randint(0, N, N_sel)
             sim_fit = between_sim[:,index_fit]
             sim_fit = (sim_fit + 1) / 2   # Min-Max Normalization
             bmm_model.fit(sim_fit.flatten())
             between_sim_norm = between_sim.masked_select(mask).view(N, -1)
             between_sim_norm = (between_sim_norm + 1) / 2
             print('Computing positive probility,wait...')
-            B = bmm_model.posterior(between_sim_norm,0) * between_sim_norm.detach() 
-            print('Over!') 
+            B = bmm_model.posterior(between_sim_norm,0) * between_sim_norm.detach()
+            print('Over!')
+
+        if (epoch == args.epoch_start and fit) or B.size(0) != N:
+            compute_B(bmm_model, between_sim, mask, N)
         if args.mode == 'weight':
             refl_sim = f(refl_sim)
             between_sim = f(between_sim)
