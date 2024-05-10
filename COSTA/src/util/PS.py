@@ -32,6 +32,7 @@ def sim_sample(data, pseudo_labels, sampler=None, encoder_model=None):
     if sampler is None:
         sampler = TomekLinks()
 
+    print("data: ", data_clone)
     print("data4sample: ", data4sample.shape)
     print("pseudo_labels: ", pseudo_labels.shape)
 
