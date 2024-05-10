@@ -53,7 +53,7 @@ def src_smote(adj, features, labels, portion=1.0, im_class_num=3):
     im_class_num = min(im_class_num, minority_clusters)
 
     sample_idx = torch.argsort(cluster_counts)[:im_class_num]
-    adj_back = adj.to_dense()
+    adj_back = adj
     chosen = None
     new_features = None
 
