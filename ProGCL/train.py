@@ -268,7 +268,7 @@ if __name__ == '__main__':
 
     model = MyModel()
     try:
-        grid_search = RandomizedSearchCV(estimator=model, param_distributions=param_dist, cv=2, scoring=None, n_jobs=-1, n_iter=4)
+        grid_search = RandomizedSearchCV(estimator=model, param_distributions=param_dist, cv=2, scoring=None, n_iter=4)
         grid_search.fit([0, 0, 1, 1, 1], [0, 1, 1, 1, 0])
     except ValueError as e:
         print(f"Skipping parameters. {e}")
