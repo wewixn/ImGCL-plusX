@@ -260,7 +260,7 @@ if __name__ == '__main__':
     param_dist = {
         'B': [30, 50],
         'eps': np.linspace(0.42, 2, 200).tolist(),
-        'eps_gap': np.linspace(0.24, 0.42, 20).tolist()
+        'eps_gap': np.linspace(0.24, 0.42, 20).tolist(),
         'min_cluster_size': range(8, 30, 2)
     }
 
