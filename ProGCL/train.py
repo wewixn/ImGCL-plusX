@@ -260,7 +260,7 @@ if __name__ == '__main__':
     param_dist = {
         'B': [30, 50],
         'eps': np.linspace(0.42, 2, 200).tolist(),
-        'eps_gap': np.linspace(0.24, 0.42, 20).tolist(),We taps into the potential of the GNN encoders that can capture the intricate relationships and dependencies between nodes in the graph, amalgamating nodes and their contextual neighbourhood information as features sampled.将上述这句话重新生成，使之更专业化与学术化。
+        'eps_gap': np.linspace(0.24, 0.42, 20).tolist()
         'min_cluster_size': range(8, 30, 2)
     }
 
