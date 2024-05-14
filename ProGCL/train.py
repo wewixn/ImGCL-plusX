@@ -147,7 +147,7 @@ def main(B, eps, eps_gap, min_cluster_size):
         if 'train' in log and epoch % 100 == 0:
             print(f'(T) | Epoch={epoch:03d}, loss={loss:.4f}')
 
-        if epoch % B == 0 and epoch != param['num_epochs'] and epoch > 100:
+        if epoch % B == 0 and epoch != param['num_epochs'] and epoch > 200:
             if data_train.x.size(0) <= 0.2 * data_test.x.size(0) or data_train.x.size(0) >= 1.21 * data_test.x.size(0):
                 data_train = data_test.clone()
             if data_train.edge_index.size(1) >= 1.21 * data_test.edge_index.size(1):
@@ -259,8 +259,8 @@ if __name__ == '__main__':
 
     param_dist = {
         'B': [30, 50],
-        'eps': np.linspace(0.24, 0.64, 100).tolist(),
-        'eps_gap': np.linspace(0.01, 0.16, 20).tolist(),
+        'eps': np.linspace(0.42, 2, 200).tolist(),
+        'eps_gap': np.linspace(0.24, 0.42, 20).tolist(),We taps into the potential of the GNN encoders that can capture the intricate relationships and dependencies between nodes in the graph, amalgamating nodes and their contextual neighbourhood information as features sampled.将上述这句话重新生成，使之更专业化与学术化。
         'min_cluster_size': range(8, 30, 2)
     }
 
