@@ -193,6 +193,8 @@ class MyModel(BaseEstimator):
         self.eps_gap = eps_gap
         self.min_cluster_size = min_cluster_size
         self.scores_ = 0
+        if self.eps_gap > self.eps * 0.42:
+            self.eps_gap = self.eps * 0.42
 
     def fit(self, X, y=None):
         try:
@@ -266,7 +268,7 @@ if __name__ == '__main__':
 
     model = MyModel()
     try:
-        grid_search = RandomizedSearchCV(estimator=model, param_distributions=param_dist, cv=3, scoring=None)
+        grid_search = RandomizedSearchCV(estimator=model, param_distributions=param_dist, cv=2, scoring=None, n_iter=4)
         grid_search.fit([0, 0, 1, 1, 1], [0, 1, 1, 1, 0])
     except ValueError as e:
         print(f"Skipping parameters. {e}")

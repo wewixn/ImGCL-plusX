@@ -197,6 +197,8 @@ class MyModel(BaseEstimator):
         self.eps_gap = eps_gap
         self.min_cluster_size = min_cluster_size
         self.scores_ = 0
+        if self.eps_gap > self.eps * 0.42:
+            self.eps_gap = self.eps * 0.42
 
     def fit(self, X, y=None):
         try:
@@ -257,14 +259,14 @@ if __name__ == '__main__':
         args.device = 'cuda'
     param_dist = {
         'B': [30, 50],
-        'eps': np.linspace(0.42, 2, 200).tolist(),
+        'eps': np.linspace(0.42, 1.42, 200).tolist(),
         'eps_gap': np.linspace(0.24, 0.42, 20).tolist(),
         'min_cluster_size': range(8, 30, 2)
     }
 
     model = MyModel()
     try:
-        grid_search = RandomizedSearchCV(estimator=model, param_distributions=param_dist, cv=3, scoring=None)
+        grid_search = RandomizedSearchCV(estimator=model, param_distributions=param_dist, cv=2, scoring=None, n_iter=4)
         grid_search.fit([0, 0, 1, 1, 1], [0, 1, 1, 1, 0])
     except ValueError as e:
         print(f"Skipping parameters. {e}")
